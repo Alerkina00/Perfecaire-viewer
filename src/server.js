@@ -18,18 +18,11 @@ app.use(express.json());
 // Arquivos estáticos do viewer
 app.use(express.static(path.join(__dirname, '../client/public')));
 
-// API
-app.use('/api/auth', authRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/proxy', proxyRoutes);   // ← novo: proxy R2 server-side
-app.use('/v', viewerRoutes);          // rota pública do viewer por QR
-
-// Health check para Railway
-app.get('/health', (req, res) => res.json({ ok: true }));
-
-// SPA fallback para o admin
-app.get('/admin*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/public/admin.html'));
+// Wasm do web-ifc — servido direto do node_modules
+app.get('/web-ifc.wasm', (req, res) => {
+  res.sendFile(
+    path.join(__dirname, '../node_modules/web-ifc/web-ifc.wasm')
+  );
 });
 
 initDB();
