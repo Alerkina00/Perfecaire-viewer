@@ -16,10 +16,8 @@ app.use(cors());
 app.use(express.json());
 
 // ← WASM antes do static, senão o 404 do static vence
-app.get('/web-ifc.wasm', (req, res) => {
-  res.sendFile(
-    path.join(__dirname, '../node_modules/web-ifc/web-ifc.wasm')
-  );
+app.get('/api/wasm/web-ifc.wasm', (req, res) => {
+  res.sendFile(path.join(__dirname, '../node_modules/web-ifc/web-ifc.wasm'));
 });
 
 // Arquivos estáticos do viewer
