@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-
 const { initDB } = require('./services/db');
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
@@ -20,25 +19,19 @@ app.use(express.static(path.join(__dirname, '../client/public')));
 // API
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
-app.use('/v', viewerRoutes); // rota pública do viewer por QR
+app.use('/v', viewerRoutes);
 
-// Health check para Railway
+// Health check
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// SPA fallback para o admin
-// Redireciona raiz para o painel admin
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-      <meta charset="UTF-8">
-      <meta http-equiv="refresh" content="0;url=/admin">
-      <title>PerfecAire Viewer</title>
-    </head>
-    <body>
-      <p>Redirecionando para <a href="/admin">painel admin</a>...</p>
-    </body>
-    </html>
-  `);
+// Rota explícita para /admin
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/public/admin.html'));
 });
+
+// Redirect raiz → /admin
+app.get('/', (req, res) => res.redirect('/admin'));
+
+// Inicializa banco e sobe servidor
+initDB();
+app.listen(PORT, () => console.log(`PerfecAire Viewer rodando na porta ${PORT}`));
