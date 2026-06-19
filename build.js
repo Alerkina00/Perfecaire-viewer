@@ -27,7 +27,7 @@ esbuild.build({
   outfile: 'client/public/viewer.bundle.js',
   platform: 'browser',
   format: 'iife',
-  loader: { '.wasm': 'file' },
+  loader: { '.wasm': 'empty' },
   publicPath: '/',
   plugins: [threeExamplesPlugin],
 }).then(() => {
