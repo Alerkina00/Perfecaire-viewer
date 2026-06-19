@@ -26,12 +26,19 @@ app.use('/v', viewerRoutes); // rota pública do viewer por QR
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 // SPA fallback para o admin
-app.get('/admin*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/public/admin.html'));
-});
-
-initDB();
-
-app.listen(PORT, () => {
-  console.log(`PerfecAire Viewer rodando na porta ${PORT}`);
+// Redireciona raiz para o painel admin
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <meta http-equiv="refresh" content="0;url=/admin">
+      <title>PerfecAire Viewer</title>
+    </head>
+    <body>
+      <p>Redirecionando para <a href="/admin">painel admin</a>...</p>
+    </body>
+    </html>
+  `);
 });
