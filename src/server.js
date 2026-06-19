@@ -7,7 +7,7 @@ const { initDB } = require('./services/db');
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const viewerRoutes = require('./routes/viewer');
-const proxyRoutes = require('./routes/proxy'); // ← novo
+const proxyRoutes = require('./routes/proxy');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,14 +15,30 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Arquivos estáticos do viewer
-app.use(express.static(path.join(__dirname, '../client/public')));
-
-// Wasm do web-ifc — servido direto do node_modules
+// ← WASM antes do static, senão o 404 do static vence
 app.get('/web-ifc.wasm', (req, res) => {
   res.sendFile(
     path.join(__dirname, '../node_modules/web-ifc/web-ifc.wasm')
   );
+});
+
+// Arquivos estáticos do viewer
+app.use(express.static(path.join(__dirname, '../client/public')));
+
+// API
+app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/proxy', proxyRoutes);
+
+// Viewer público por QR
+app.use('/v', viewerRoutes);
+
+// Health check para Railway
+app.get('/health', (req, res) => res.json({ ok: true }));
+
+// SPA fallback para o admin
+app.get('/admin*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/public/admin.html'));
 });
 
 initDB();
