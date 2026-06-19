@@ -232,7 +232,9 @@ async function init() {
       document.getElementById('project-desc').textContent = project.description;
     }
 
-    await loadModel(project.fileUrl, project.file_type);
+    // ← USA PROXY: evita CORS entre browser e R2
+    await loadModel(`/api/proxy/${project.slug}`, project.file_type);
+
   } catch (err) {
     setStatus(err.message, true);
   }
