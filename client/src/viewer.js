@@ -66,7 +66,7 @@ let ifcLoader = null;
 function getIFCLoader() {
   if (!ifcLoader) {
     ifcLoader = new IFCLoader();
-    ifcLoader.ifcManager.setWasmPath('/');
+    ifcLoader.ifcManager.setWasmPath('');
     ifcLoader.ifcManager.useWebWorkers(false);
   }
   return ifcLoader;
