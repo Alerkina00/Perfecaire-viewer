@@ -1,4 +1,4 @@
-// build.js — esbuild customizado para resolver imports do three/examples sem extensão .js
+// build.js — esbuild customizado
 const esbuild = require('esbuild');
 const path = require('path');
 const fs = require('fs');
@@ -25,14 +25,45 @@ const copyWasmPlugin = {
   name: 'copy-wasm',
   setup(build) {
     build.onEnd(() => {
-      const wasmSource = path.resolve(__dirname, 'node_modules/web-ifc/IFC.wasm');
-      const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
+      // Procura o WASM em diferentes locais possíveis
+      const possiblePaths = [
+        path.resolve(__dirname, 'node_modules/web-ifc/IFC.wasm'),
+        path.resolve(__dirname, 'node_modules/web-ifc/dist/IFC.wasm'),
+        path.resolve(__dirname, 'node_modules/web-ifc/wasm/IFC.wasm')
+      ];
       
-      if (fs.existsSync(wasmSource)) {
+      let wasmSource = null;
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          wasmSource = p;
+          break;
+        }
+      }
+      
+      if (wasmSource) {
+        const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
+        // Cria a pasta se não existir
+        const destDir = path.dirname(wasmDest);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
         fs.copyFileSync(wasmSource, wasmDest);
         console.log('✓ IFC.wasm copiado para client/public/');
       } else {
-        console.warn('⚠ IFC.wasm não encontrado em node_modules/web-ifc/');
+        console.warn('⚠ IFC.wasm não encontrado. Baixando da internet...');
+        // Fallback: tenta baixar do CDN
+        const https = require('https');
+        const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
+        const file = fs.createWriteStream(wasmDest);
+        https.get('https://cdn.jsdelivr.net/npm/web-ifc@0.0.58/IFC.wasm', (response) => {
+          response.pipe(file);
+          file.on('finish', () => {
+            file.close();
+            console.log('✓ IFC.wasm baixado do CDN para client/public/');
+          });
+        }).on('error', (err) => {
+          console.warn('⚠ Não foi possível baixar IFC.wasm:', err.message);
+        });
       }
     });
   }
@@ -45,7 +76,7 @@ esbuild.build({
   platform: 'browser',
   format: 'iife',
   loader: { 
-    '.wasm': 'file'  // Mudamos de 'empty' para 'file'
+    '.wasm': 'file'
   },
   publicPath: '/',
   plugins: [threeExamplesPlugin, copyWasmPlugin],
