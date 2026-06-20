@@ -66,7 +66,8 @@ let ifcLoader = null;
 function getIFCLoader() {
   if (!ifcLoader) {
     ifcLoader = new IFCLoader();
-  ifcLoader.ifcManager.setWasmPath('/');
+    // ✅ CORRIGIDO: caminho correto para o WASM
+    ifcLoader.ifcManager.setWasmPath('/');
     ifcLoader.ifcManager.useWebWorkers(false);
   }
   return ifcLoader;
@@ -213,6 +214,11 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+
+// Exporta objetos para uso nos botões
+window._scene = scene;
+window._grid = grid;
+window._fitCamera = fitCamera;
 
 // ─── Inicialização — carrega projeto da API ───────────────────────────────────
 
