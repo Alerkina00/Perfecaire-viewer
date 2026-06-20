@@ -42,7 +42,6 @@ const copyWasmPlugin = {
       
       if (wasmSource) {
         const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
-        // Cria a pasta se não existir
         const destDir = path.dirname(wasmDest);
         if (!fs.existsSync(destDir)) {
           fs.mkdirSync(destDir, { recursive: true });
@@ -51,7 +50,6 @@ const copyWasmPlugin = {
         console.log('✓ IFC.wasm copiado para client/public/');
       } else {
         console.warn('⚠ IFC.wasm não encontrado. Baixando da internet...');
-        // Fallback: tenta baixar do CDN
         const https = require('https');
         const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
         const file = fs.createWriteStream(wasmDest);
@@ -82,7 +80,11 @@ esbuild.build({
   plugins: [threeExamplesPlugin, copyWasmPlugin],
   define: {
     'process.env.NODE_ENV': '"production"'
-  }
+  },
+  // ⚠️ IMPORTANTE: Permite imports dinâmicos
+  splitting: false,
+  sourcemap: false,
+  target: ['es2020']
 }).then(() => {
   console.log('✓ viewer.bundle.js gerado com sucesso');
 }).catch(err => {
