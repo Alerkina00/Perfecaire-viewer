@@ -1,94 +1,46 @@
-// build.js — esbuild customizado
+// build.js — esbuild PerfecAire
+//
+// NOTA: O viewer 3D (Three.js + web-ifc) roda via ES Modules inline no
+// viewer.html, carregado do CDN. Não é bundlado aqui para evitar:
+//   - LinkError no WASM do web-ifc (Emscripten quebra quando bundlado)
+//   - "Multiple instances of Three.js"
+//
+// Este build.js existe caso você adicione outros scripts JS para bundlar
+// (ex: painel admin, utilitários). Se não houver nada a bundlar, pode
+// simplesmente não chamar "npm run build:client" — o viewer.html funciona
+// direto sem nenhum bundle.
+
 const esbuild = require('esbuild');
-const path = require('path');
-const fs = require('fs');
+const path    = require('path');
+const fs      = require('fs');
 
-// Plugin para resolver imports do Three.js examples
-const threeExamplesPlugin = {
-  name: 'three-examples-fix',
-  setup(build) {
-    build.onResolve({ filter: /^three\/examples\/jsm\// }, args => {
-      const withExt = args.path.endsWith('.js') ? args.path : args.path + '.js';
-      return {
-        path: path.resolve(
-          __dirname,
-          'node_modules',
-          withExt.replace(/^three\//, 'three/')
-        )
-      };
-    });
-  }
-};
+// ─── Verifica se há algo para bundlar ────────────────────────────────────────
 
-// Plugin para copiar o arquivo WASM
-const copyWasmPlugin = {
-  name: 'copy-wasm',
-  setup(build) {
-    build.onEnd(() => {
-      const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
-      const destDir = path.dirname(wasmDest);
-      if (!fs.existsSync(destDir)) {
-        fs.mkdirSync(destDir, { recursive: true });
-      }
-      
-      // Tenta encontrar o WASM
-      const possiblePaths = [
-        path.resolve(__dirname, 'node_modules/web-ifc/IFC.wasm'),
-        path.resolve(__dirname, 'node_modules/web-ifc/dist/IFC.wasm'),
-        path.resolve(__dirname, 'node_modules/web-ifc/wasm/IFC.wasm')
-      ];
-      
-      let wasmSource = null;
-      for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-          wasmSource = p;
-          break;
-        }
-      }
-      
-      if (wasmSource) {
-        fs.copyFileSync(wasmSource, wasmDest);
-        console.log('✓ IFC.wasm copiado para client/public/');
-      } else {
-        console.log('⚠ Baixando IFC.wasm do CDN...');
-        const https = require('https');
-        const file = fs.createWriteStream(wasmDest);
-        https.get('https://cdn.jsdelivr.net/npm/web-ifc@0.0.58/IFC.wasm', (response) => {
-          response.pipe(file);
-          file.on('finish', () => {
-            file.close();
-            console.log('✓ IFC.wasm baixado do CDN');
-          });
-        }).on('error', (err) => {
-          console.warn('⚠ Não foi possível baixar IFC.wasm:', err.message);
-          // Cria um arquivo vazio para não quebrar o build
-          fs.writeFileSync(wasmDest, '');
-        });
-      }
-    });
-  }
-};
+const ENTRY = path.resolve(__dirname, 'client/src/admin.js'); // ajuste se necessário
+
+if (!fs.existsSync(ENTRY)) {
+  console.log('ℹ Nenhum entry point encontrado em client/src/admin.js');
+  console.log('  O viewer.html usa ES Modules inline — nenhum bundle necessário.');
+  console.log('  Adicione client/src/admin.js se quiser bundlar o painel admin.');
+  process.exit(0);
+}
+
+// ─── Bundle do admin (se existir) ────────────────────────────────────────────
 
 esbuild.build({
-  entryPoints: ['client/src/viewer.js'],
+  entryPoints: [ENTRY],
   bundle: true,
-  outfile: 'client/public/viewer.bundle.js',
+  outfile: 'client/public/admin.bundle.js',
   platform: 'browser',
   format: 'iife',
-  loader: { 
-    '.wasm': 'file'
-  },
-  publicPath: '/',
-  plugins: [threeExamplesPlugin, copyWasmPlugin],
   define: {
     'process.env.NODE_ENV': '"production"'
   },
   target: ['es2020'],
-  // Permite imports dinâmicos
-  splitting: false,
-  sourcemap: false
+  minify: true,
+  sourcemap: false,
 }).then(() => {
-  console.log('✓ viewer.bundle.js gerado com sucesso');
+  console.log('✓ admin.bundle.js gerado com sucesso');
 }).catch(err => {
   console.error('✘ Build falhou:', err.message);
   process.exit(1);
