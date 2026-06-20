@@ -2,53 +2,49 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-
-const { initDB } = require('./services/db');
-const authRoutes = require('./routes/auth');
-const projectRoutes = require('./routes/projects');
-const viewerRoutes = require('./routes/viewer');
-const proxyRoutes = require('./routes/proxy');
+const { getDb, saveDb } = require('./services/db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middlewares
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Serve wasm — captura com ou sem barra dupla
-const wasmFile = path.join(__dirname, '../node_modules/web-ifc/web-ifc.wasm');
-app.get('/api/wasm/web-ifc.wasm', (req, res) => res.sendFile(wasmFile));
-app.get('/web-ifc.wasm', (req, res) => res.sendFile(wasmFile));
-
-// Middleware para normalizar barras duplas
-app.use((req, res, next) => {
-  if (req.path.includes('//')) {
-    return res.redirect(301, req.path.replace(/\/+/g, '/'));
-  }
-  next();
-});
-
-// Arquivos estáticos do viewer
+// Arquivos estáticos
 app.use(express.static(path.join(__dirname, '../client/public')));
 
-// API
-app.use('/api/auth', authRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/proxy', proxyRoutes);
+// Rotas
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/projects', require('./routes/projects'));
+app.use('/api/proxy', require('./routes/proxy'));
 
-// Viewer público por QR
-app.use('/v', viewerRoutes);
+// Rota para viewer
+app.get('/v/:slug', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/public/viewer.html'));
+});
 
-// Health check para Railway
-app.get('/health', (req, res) => res.json({ ok: true }));
-
-// SPA fallback para o admin
-app.get('/admin*', (req, res) => {
+// Rota admin
+app.get('/admin.html', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/public/admin.html'));
 });
 
-initDB();
+// Inicializa o banco e sobe o servidor
+async function start() {
+  await getDb();
+  
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+    console.log(`📊 Admin: http://localhost:${PORT}/admin.html`);
+    console.log(`👤 Login: admin / senha: admin123`);
+  });
+}
 
-app.listen(PORT, () => {
-  console.log(`PerfecAire Viewer rodando na porta ${PORT}`);
+start().catch(console.error);
+
+// Salva o banco ao fechar
+process.on('SIGINT', () => {
+  saveDb();
+  process.exit();
 });
