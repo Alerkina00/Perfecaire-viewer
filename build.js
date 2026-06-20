@@ -10,7 +10,7 @@ let removed = 0;
 for (const p of toRemove) {
   if (fs.existsSync(p)) {
     fs.unlinkSync(p);
-    console.log(`✓ Removido: ${path.basename(p)}`);
+    console.log('✓ Removido: ' + path.basename(p));
     removed++;
   }
 }
