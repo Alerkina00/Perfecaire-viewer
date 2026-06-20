@@ -1,51 +1,52 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { getDB } = require('../services/db');
-const { signToken, requireAuth } = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
+const { getDb } = require('../services/db');
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'perfecaire-secret-key-change-in-production';
 
-// POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { username, password } = req.body;
+
   if (!username || !password) {
-    return res.status(400).json({ error: 'Usuário e senha obrigatórios' });
+    return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
   }
 
-  const db = getDB();
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: 'Usuário ou senha incorretos' });
-  }
+  try {
+    const db = await getDb();
+    const result = db.exec('SELECT * FROM users WHERE username = ?', [username]);
+    
+    if (result.length === 0 || result[0].values.length === 0) {
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    }
 
-  const token = signToken({ id: user.id, username: user.username });
-  res.json({ token, username: user.username });
+    const row = result[0].values[0];
+    const user = { id: row[0], username: row[1], password: row[2] };
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    }
+
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// GET /api/auth/me — verifica se token ainda é válido
-router.get('/me', requireAuth, (req, res) => {
-  res.json({ username: req.user.username });
-});
+router.get('/me', async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'Não autenticado' });
 
-// POST /api/auth/change-password
-router.post('/change-password', requireAuth, (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ error: 'Campos obrigatórios' });
+  try {
+    const token = auth.replace('Bearer ', '');
+    const decoded = jwt.verify(token, JWT_SECRET);
+    res.json({ id: decoded.id, username: decoded.username });
+  } catch {
+    res.status(401).json({ error: 'Token inválido' });
   }
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: 'Senha deve ter no mínimo 8 caracteres' });
-  }
-
-  const db = getDB();
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  if (!bcrypt.compareSync(currentPassword, user.password_hash)) {
-    return res.status(401).json({ error: 'Senha atual incorreta' });
-  }
-
-  const hash = bcrypt.hashSync(newPassword, 10);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.id);
-  res.json({ ok: true });
 });
 
 module.exports = router;
