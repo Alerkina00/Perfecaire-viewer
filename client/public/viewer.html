@@ -143,12 +143,12 @@
     <button class="ctrl-btn" id="btn-fullscreen" title="Tela cheia">⛶</button>
   </div>
 
-  <!-- Carrega Three.js do CDN -->
+  <!-- Carrega tudo do CDN -->
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
     }
   }
   </script>
@@ -216,18 +216,17 @@
 
     // ─── Loaders ─────────────────────────────────────────────────────────────────
 
-    // 🔧 CORREÇÃO: Carrega o IFCLoader via CDN
+    // 🔧 CORREÇÃO: Usa CDN do web-ifc-three com versão que existe
     async function loadIFC(url) {
       try {
-        // Carrega o IFCLoader do CDN
-        const { IFCLoader } = await import('https://cdn.jsdelivr.net/npm/web-ifc-three@0.0.135/IFCLoader.js');
+        // Versão 0.0.133 é a última estável
+        const { IFCLoader } = await import('https://cdn.jsdelivr.net/npm/web-ifc-three@0.0.133/IFCLoader.js');
         
         return new Promise((resolve, reject) => {
           const loader = new IFCLoader();
           
-          // Configura o caminho do WASM
           if (loader.ifcManager) {
-            loader.ifcManager.setWasmPath('/');
+            loader.ifcManager.setWasmPath('https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/');
             loader.ifcManager.useWebWorkers(false);
           }
           
@@ -250,14 +249,28 @@
         });
       } catch (err) {
         console.error('Erro ao carregar IFCLoader:', err);
-        throw new Error('Não foi possível carregar o suporte a IFC: ' + err.message);
+        // Fallback: tenta com versão diferente
+        try {
+          const { IFCLoader } = await import('https://unpkg.com/web-ifc-three@0.0.133/IFCLoader.js');
+          return new Promise((resolve, reject) => {
+            const loader = new IFCLoader();
+            if (loader.ifcManager) {
+              loader.ifcManager.setWasmPath('https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/');
+              loader.ifcManager.useWebWorkers(false);
+            }
+            loader.load(url, resolve, (e) => {
+              if (e.total) setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`);
+            }, reject);
+          });
+        } catch (err2) {
+          throw new Error('Não foi possível carregar o suporte a IFC. Tente usar GLTF, OBJ ou FBX.');
+        }
       }
     }
 
     async function loadModel(url, fileType) {
       setStatus('Carregando modelo…');
 
-      // Remove modelo anterior
       const prev = scene.getObjectByName('__model__');
       if (prev) scene.remove(prev);
 
