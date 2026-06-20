@@ -1,30 +1,34 @@
-const Database = require('better-sqlite3');
-const bcrypt = require('bcryptjs');
+const initSqlJs = require('sql.js');
+const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/perfecaire.db');
+const DB_PATH = path.resolve(__dirname, '../../database.db');
 
-let db;
+let db = null;
+let SQL = null;
 
-function getDB() {
-  if (!db) {
-    const fs = require('fs');
-    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
+async function getDb() {
+  if (db) return db;
+
+  // Carrega SQL.js
+  SQL = await initSqlJs({
+    locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm')
+  });
+
+  // Cria ou carrega o banco
+  let dbData = null;
+  if (fs.existsSync(DB_PATH)) {
+    dbData = fs.readFileSync(DB_PATH);
   }
-  return db;
-}
 
-function initDB() {
-  const db = getDB();
+  db = new SQL.Database(dbData);
 
+  // Cria as tabelas se não existirem
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      password TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS projects (
@@ -32,25 +36,37 @@ function initDB() {
       slug TEXT UNIQUE NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
-      file_key TEXT,
-      file_type TEXT,
-      file_size INTEGER,
+      file_name TEXT NOT NULL,
+      file_size INTEGER NOT NULL,
+      file_type TEXT NOT NULL,
+      file_key TEXT NOT NULL,
       qr_url TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  // Cria admin padrão se não existir
-  const admin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-  if (!admin) {
-    const defaultPass = process.env.ADMIN_PASSWORD || 'perfecaire2024';
-    const hash = bcrypt.hashSync(defaultPass, 10);
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('admin', hash);
-    console.log(`✅ Admin criado — senha: ${defaultPass}`);
+  // Cria usuário admin se não existir
+  const bcrypt = require('bcryptjs');
+  const adminExists = db.exec('SELECT * FROM users WHERE username = "admin"');
+  if (adminExists.length === 0 || adminExists[0].values.length === 0) {
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.run('INSERT INTO users (username, password) VALUES (?, ?)', ['admin', hash]);
+    console.log('✓ Usuário admin criado (senha: admin123)');
   }
 
-  console.log('✅ Banco de dados inicializado');
+  saveDb();
+  return db;
 }
 
-module.exports = { getDB, initDB };
+function saveDb() {
+  if (db) {
+    const data = db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+  }
+}
+
+function getSQL() {
+  return SQL;
+}
+
+module.exports = { getDb, saveDb, getSQL };
