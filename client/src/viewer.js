@@ -1,423 +1,291 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PerfecAire Viewer</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
-    body {
-      background: #1a1a2e;
-      color: #e0e0f0;
-      font-family: system-ui, -apple-system, sans-serif;
-      overflow: hidden;
-    }
+// ─── Cena ────────────────────────────────────────────────────────────────────
 
-    #viewer-canvas {
-      display: block;
-      width: 100vw;
-      height: 100vh;
-    }
+const canvas = document.getElementById('viewer-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
 
-    #header {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 20px;
-      background: linear-gradient(to bottom, rgba(26,26,46,0.95), transparent);
-      pointer-events: none;
-      z-index: 10;
-    }
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+scene.fog = new THREE.Fog(0x1a1a2e, 50, 200);
 
-    #logo-text {
-      font-size: 13px;
-      font-weight: 700;
-      color: #6060cc;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+camera.position.set(10, 10, 10);
 
-    #project-name {
-      font-size: 15px;
-      font-weight: 600;
-      color: #e0e0f0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.screenSpacePanning = true;
+controls.minDistance = 0.5;
+controls.maxDistance = 500;
 
-    #project-desc {
-      font-size: 12px;
-      color: #8888aa;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+// ─── Iluminação ──────────────────────────────────────────────────────────────
 
-    #status {
-      position: fixed;
-      bottom: 60px; left: 50%; transform: translateX(-50%);
-      background: rgba(20,20,40,0.9);
-      color: #aaaacc;
-      padding: 8px 20px;
-      border-radius: 20px;
-      font-size: 13px;
-      border: 1px solid rgba(100,100,180,0.3);
-      display: none;
-      z-index: 10;
-    }
+const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambient);
 
-    #info-toast {
-      position: fixed;
-      bottom: 20px; left: 50%; transform: translateX(-50%);
-      background: rgba(20,180,120,0.15);
-      color: #4ec9a0;
-      padding: 6px 18px;
-      border-radius: 20px;
-      font-size: 13px;
-      border: 1px solid rgba(78,201,160,0.3);
-      opacity: 0;
-      transition: opacity 0.5s;
-      z-index: 10;
-    }
+const sun = new THREE.DirectionalLight(0xffeedd, 1.2);
+sun.position.set(20, 40, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 200;
+sun.shadow.camera.left = -50;
+sun.shadow.camera.right = 50;
+sun.shadow.camera.top = 50;
+sun.shadow.camera.bottom = -50;
+scene.add(sun);
 
-    #controls {
-      position: fixed;
-      bottom: 20px; right: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      z-index: 10;
-    }
+const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
+fill.position.set(-20, 10, -20);
+scene.add(fill);
 
-    .ctrl-btn {
-      width: 40px; height: 40px;
-      background: rgba(30,30,60,0.85);
-      border: 1px solid rgba(100,100,180,0.35);
-      border-radius: 10px;
-      color: #aaaacc;
-      font-size: 18px;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: background 0.2s;
-    }
-    .ctrl-btn:hover { background: rgba(60,60,120,0.9); color: #fff; }
+// Grade de referência
+const grid = new THREE.GridHelper(100, 50, 0x444466, 0x333355);
+grid.material.opacity = 0.4;
+grid.material.transparent = true;
+scene.add(grid);
+window._grid = grid;
 
-    #format-badge {
-      position: fixed;
-      top: 60px; right: 20px;
-      background: rgba(100,60,200,0.2);
-      color: #a090ff;
-      padding: 4px 10px;
-      border-radius: 8px;
-      font-size: 11px;
-      font-weight: 600;
-      border: 1px solid rgba(100,60,200,0.35);
-      letter-spacing: 0.05em;
-      z-index: 10;
-    }
-  </style>
-</head>
-<body>
-  <canvas id="viewer-canvas"></canvas>
+// ─── Loaders ─────────────────────────────────────────────────────────────────
 
-  <div id="header">
-    <span id="logo-text">PerfecAire</span>
-    <div>
-      <div id="project-name">Carregando…</div>
-      <div id="project-desc"></div>
-    </div>
-  </div>
+// 🔧 CORREÇÃO: Carrega o IFCLoader via importação dinâmica
+let IFCLoaderModule = null;
 
-  <div id="format-badge">—</div>
-  <div id="status" style="display:none"></div>
-  <div id="info-toast"></div>
-
-  <div id="controls">
-    <button class="ctrl-btn" id="btn-fit" title="Centralizar modelo">⊙</button>
-    <button class="ctrl-btn" id="btn-grid" title="Mostrar/ocultar grade">⊞</button>
-    <button class="ctrl-btn" id="btn-wire" title="Wireframe">⬡</button>
-    <button class="ctrl-btn" id="btn-fullscreen" title="Tela cheia">⛶</button>
-  </div>
-
-  <!-- Three.js via importmap do CDN — única instância, sem bundle -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+async function getIFCLoader() {
+  if (!IFCLoaderModule) {
+    try {
+      // Tenta importar de diferentes formas
+      const module = await import('web-ifc');
+      // O IFCLoader pode estar exportado de diferentes formas
+      IFCLoaderModule = module.IFCLoader || module.default?.IFCLoader || module;
+      console.log('✓ IFCLoader carregado:', typeof IFCLoaderModule);
+    } catch (err) {
+      console.error('Erro ao carregar IFCLoader:', err);
+      throw new Error('Não foi possível carregar o suporte a IFC');
     }
   }
-  </script>
+  return IFCLoaderModule;
+}
 
-  <script type="module">
-    import * as THREE from 'three';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
-    import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
-    import { FBXLoader }     from 'three/addons/loaders/FBXLoader.js';
-
-    // ─── Renderer ────────────────────────────────────────────────────────────
-
-    const canvas = document.getElementById('viewer-canvas');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
-
-    // ─── Cena ────────────────────────────────────────────────────────────────
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
-    scene.fog = new THREE.Fog(0x1a1a2e, 50, 200);
-
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(10, 10, 10);
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.screenSpacePanning = true;
-    controls.minDistance = 0.5;
-    controls.maxDistance = 500;
-
-    // ─── Iluminação ──────────────────────────────────────────────────────────
-
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-
-    const sun = new THREE.DirectionalLight(0xffeedd, 1.2);
-    sun.position.set(20, 40, 20);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near   = 0.5;
-    sun.shadow.camera.far    = 200;
-    sun.shadow.camera.left   = -50;
-    sun.shadow.camera.right  = 50;
-    sun.shadow.camera.top    = 50;
-    sun.shadow.camera.bottom = -50;
-    scene.add(sun);
-
-    const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
-    fill.position.set(-20, 10, -20);
-    scene.add(fill);
-
-    // Grade
-    const grid = new THREE.GridHelper(100, 50, 0x444466, 0x333355);
-    grid.material.opacity = 0.4;
-    grid.material.transparent = true;
-    scene.add(grid);
-
-    // ─── IFC Loader (via CDN, nunca bundlado) ────────────────────────────────
-    //
-    // web-ifc usa Emscripten/WASM. Quando bundlado pelo esbuild, o runtime
-    // Emscripten perde o vínculo com o WASM causando:
-    //   LinkError: Import #0 "a" "a": function import requires a callable
-    //
-    // Solução: importar dinamicamente do CDN apenas quando necessário.
-    // Versões pinadas e compatíveis entre si:
-    //   web-ifc-three@0.0.140  ←→  web-ifc@0.0.58
-
-    let _IFCLoader = null;
-
-    async function getIFCLoader() {
-      if (_IFCLoader) return _IFCLoader;
-      const { IFCLoader } = await import(
-        'https://cdn.jsdelivr.net/npm/web-ifc-three@0.0.140/IFCLoader.js'
-      );
-      _IFCLoader = IFCLoader;
-      return _IFCLoader;
+async function loadIFC(url) {
+  try {
+    const IFCLoader = await getIFCLoader();
+    
+    // Verifica se o IFCLoader é uma função construtora
+    if (typeof IFCLoader !== 'function') {
+      throw new Error('IFCLoader não é uma função construtora. Tipo: ' + typeof IFCLoader);
     }
-
-    async function loadIFC(url) {
-      const IFCLoader = await getIFCLoader();
+    
+    return new Promise((resolve, reject) => {
       const loader = new IFCLoader();
-
+      
+      // Configura o caminho do WASM
       if (loader.ifcManager) {
-        await loader.ifcManager.setWasmPath(
-          'https://cdn.jsdelivr.net/npm/web-ifc@0.0.58/'
-        );
+        loader.ifcManager.setWasmPath('/');
         loader.ifcManager.useWebWorkers(false);
       }
-
-      return new Promise((resolve, reject) => {
-        loader.load(
-          url,
-          resolve,
-          (e) => { if (e.total) setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`); },
-          reject
-        );
-      });
-    }
-
-    // ─── Loaders GLTF / OBJ / FBX ───────────────────────────────────────────
-
-    function loadGLTF(url) {
-      return new Promise((resolve, reject) =>
-        new GLTFLoader().load(url, g => resolve(g.scene),
-          e => e.total && setStatus(`Carregando… ${Math.round(e.loaded/e.total*100)}%`), reject));
-    }
-
-    function loadOBJ(url) {
-      return new Promise((resolve, reject) =>
-        new OBJLoader().load(url, resolve, null, reject));
-    }
-
-    function loadFBX(url) {
-      return new Promise((resolve, reject) =>
-        new FBXLoader().load(url, fbx => { fbx.scale.setScalar(0.01); resolve(fbx); }, null, reject));
-    }
-
-    // ─── loadModel ───────────────────────────────────────────────────────────
-
-    async function loadModel(url, fileType) {
-      setStatus('Carregando modelo…');
-      const prev = scene.getObjectByName('__model__');
-      if (prev) scene.remove(prev);
-
-      try {
-        let model;
-        switch (fileType) {
-          case 'ifc':              model = await loadIFC(url);  break;
-          case 'gltf': case 'glb': model = await loadGLTF(url); break;
-          case 'obj':              model = await loadOBJ(url);  break;
-          case 'fbx':              model = await loadFBX(url);  break;
-          default: throw new Error(`Formato não suportado: ${fileType}`);
+      
+      loader.load(
+        url,
+        (model) => {
+          console.log('✓ IFC carregado com sucesso');
+          resolve(model);
+        },
+        (e) => {
+          if (e.total) {
+            setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`);
+          }
+        },
+        (err) => {
+          console.error('Erro no carregamento IFC:', err);
+          reject(err);
         }
+      );
+    });
+  } catch (err) {
+    console.error('Erro ao carregar IFC:', err);
+    throw err;
+  }
+}
 
-        model.name = '__model__';
-        scene.add(model);
-        fitCamera(model);
-        setStatus('');
-        showInfo(`✓ ${fileType.toUpperCase()} carregado`);
-        document.getElementById('format-badge').textContent = fileType.toUpperCase();
+async function loadModel(url, fileType) {
+  setStatus('Carregando modelo…');
 
-      } catch (err) {
-        console.error('Erro ao carregar modelo:', err);
-        setStatus(`Erro: ${err.message}`, true);
-      }
+  // Remove modelo anterior
+  const prev = scene.getObjectByName('__model__');
+  if (prev) scene.remove(prev);
+
+  let model;
+
+  try {
+    switch (fileType) {
+      case 'ifc':
+        model = await loadIFC(url);
+        break;
+      case 'gltf':
+      case 'glb':
+        model = await loadGLTF(url);
+        break;
+      case 'obj':
+        model = await loadOBJ(url);
+        break;
+      case 'fbx':
+        model = await loadFBX(url);
+        break;
+      default:
+        throw new Error(`Formato não suportado: ${fileType}`);
     }
 
-    // ─── Câmera fit ──────────────────────────────────────────────────────────
+    model.name = '__model__';
+    scene.add(model);
+    fitCamera(model);
+    setStatus('');
+    showInfo(`✓ ${fileType.toUpperCase()} carregado`);
 
-    function fitCamera(object) {
-      const box    = new THREE.Box3().setFromObject(object);
-      const center = box.getCenter(new THREE.Vector3());
-      const size   = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
+  } catch (err) {
+    console.error('Erro ao carregar modelo:', err);
+    setStatus(`Erro: ${err.message}`, true);
+  }
+}
 
-      if (maxDim === 0) {
-        controls.target.set(0, 0, 0);
-        camera.position.set(10, 10, 10);
-        controls.update();
-        return;
-      }
+function loadGLTF(url) {
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().load(
+      url,
+      (gltf) => resolve(gltf.scene),
+      (e) => e.total && setStatus(`Carregando… ${Math.round(e.loaded / e.total * 100)}%`),
+      reject
+    );
+  });
+}
 
-      controls.target.copy(center);
-      const dist = maxDim * 1.5;
-      camera.position.copy(center).add(new THREE.Vector3(dist, dist * 0.8, dist));
-      camera.near = maxDim * 0.001;
-      camera.far  = maxDim * 100;
-      camera.updateProjectionMatrix();
-      controls.update();
-      grid.position.y = box.min.y || 0;
+function loadOBJ(url) {
+  return new Promise((resolve, reject) => {
+    new OBJLoader().load(
+      url,
+      (obj) => resolve(obj),
+      null,
+      reject
+    );
+  });
+}
+
+function loadFBX(url) {
+  return new Promise((resolve, reject) => {
+    new FBXLoader().load(
+      url,
+      (fbx) => {
+        fbx.scale.setScalar(0.01);
+        resolve(fbx);
+      },
+      null,
+      reject
+    );
+  });
+}
+
+// ─── Câmera fit ──────────────────────────────────────────────────────────────
+
+function fitCamera(object) {
+  const box = new THREE.Box3().setFromObject(object);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+
+  if (maxDim === 0) {
+    // Modelo muito pequeno, usa valores padrão
+    controls.target.set(0, 0, 0);
+    camera.position.set(10, 10, 10);
+    controls.update();
+    return;
+  }
+
+  controls.target.copy(center);
+  const distance = maxDim * 1.5;
+  camera.position.copy(center).add(new THREE.Vector3(distance, distance * 0.8, distance));
+  camera.near = maxDim * 0.001;
+  camera.far = maxDim * 100;
+  camera.updateProjectionMatrix();
+  controls.update();
+
+  grid.position.y = box.min.y || 0;
+}
+
+// ─── UI helpers ──────────────────────────────────────────────────────────────
+
+function setStatus(msg, isError = false) {
+  const el = document.getElementById('status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+  el.style.color = isError ? '#ff6b6b' : '#aaaacc';
+}
+
+function showInfo(msg) {
+  const el = document.getElementById('info-toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.opacity = '1';
+  setTimeout(() => { el.style.opacity = '0'; }, 3000);
+}
+
+// ─── Resize ──────────────────────────────────────────────────────────────────
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── Loop ────────────────────────────────────────────────────────────────────
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ─── Inicialização ──────────────────────────────────────────────────────────
+
+async function init() {
+  const slug = window.location.pathname.split('/').pop();
+  if (!slug) return setStatus('Nenhum projeto especificado', true);
+
+  try {
+    const res = await fetch(`/api/projects/${slug}`);
+    if (!res.ok) throw new Error('Projeto não encontrado');
+    const project = await res.json();
+
+    document.title = `${project.name} — PerfecAire Viewer`;
+    document.getElementById('project-name').textContent = project.name;
+    if (project.description) {
+      document.getElementById('project-desc').textContent = project.description;
     }
 
-    // ─── UI helpers ──────────────────────────────────────────────────────────
+    await loadModel(`/api/proxy/${project.slug}`, project.file_type);
 
-    function setStatus(msg, isError = false) {
-      const el = document.getElementById('status');
-      if (!el) return;
-      el.textContent   = msg;
-      el.style.display = msg ? 'block' : 'none';
-      el.style.color   = isError ? '#ff6b6b' : '#aaaacc';
-    }
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
 
-    function showInfo(msg) {
-      const el = document.getElementById('info-toast');
-      if (!el) return;
-      el.textContent   = msg;
-      el.style.opacity = '1';
-      setTimeout(() => { el.style.opacity = '0'; }, 3000);
-    }
+init();
 
-    // ─── Resize ──────────────────────────────────────────────────────────────
-
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-    // ─── Loop ────────────────────────────────────────────────────────────────
-
-    (function animate() {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    })();
-
-    // ─── Inicialização ───────────────────────────────────────────────────────
-
-    async function init() {
-      const slug = window.location.pathname.split('/').filter(Boolean).pop();
-      if (!slug) return setStatus('Nenhum projeto especificado', true);
-
-      try {
-        const res = await fetch(`/api/projects/${slug}`);
-        if (!res.ok) throw new Error('Projeto não encontrado');
-        const project = await res.json();
-
-        document.title = `${project.name} — PerfecAire Viewer`;
-        document.getElementById('project-name').textContent = project.name;
-        if (project.description) {
-          document.getElementById('project-desc').textContent = project.description;
-        }
-
-        await loadModel(`/api/proxy/${project.slug}`, project.file_type);
-      } catch (err) {
-        setStatus(err.message, true);
-      }
-    }
-
-    init();
-
-    // Debug
-    window._scene    = scene;
-    window._camera   = camera;
-    window._controls = controls;
-    window.loadModel = loadModel;
-
-    // ─── Botões ──────────────────────────────────────────────────────────────
-
-    document.getElementById('btn-fit').addEventListener('click', () => {
-      const m = scene.getObjectByName('__model__');
-      if (m) fitCamera(m);
-    });
-
-    document.getElementById('btn-grid').addEventListener('click', function () {
-      grid.visible = !grid.visible;
-      this.style.color = grid.visible ? '#aaaacc' : '#555588';
-    });
-
-    let wireOn = false;
-    document.getElementById('btn-wire').addEventListener('click', function () {
-      wireOn = !wireOn;
-      const m = scene.getObjectByName('__model__');
-      if (m) m.traverse(c => { if (c.isMesh) c.material.wireframe = wireOn; });
-      this.style.color = wireOn ? '#a090ff' : '#aaaacc';
-    });
-
-    document.getElementById('btn-fullscreen').addEventListener('click', () => {
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-      else document.exitFullscreen();
-    });
-  </script>
-</body>
-</html>
+// Exporta para debug
+window.loadModel = loadModel;
+window._scene = scene;
+window._fitCamera = fitCamera;
+window.loadIFC = loadIFC;
