@@ -20,12 +20,18 @@ const threeExamplesPlugin = {
   }
 };
 
-// Plugin para copiar o arquivo WASM do web-ifc
+// Plugin para copiar o arquivo WASM
 const copyWasmPlugin = {
   name: 'copy-wasm',
   setup(build) {
     build.onEnd(() => {
-      // Procura o WASM em diferentes locais possíveis
+      const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
+      const destDir = path.dirname(wasmDest);
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      
+      // Tenta encontrar o WASM
       const possiblePaths = [
         path.resolve(__dirname, 'node_modules/web-ifc/IFC.wasm'),
         path.resolve(__dirname, 'node_modules/web-ifc/dist/IFC.wasm'),
@@ -41,26 +47,22 @@ const copyWasmPlugin = {
       }
       
       if (wasmSource) {
-        const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
-        const destDir = path.dirname(wasmDest);
-        if (!fs.existsSync(destDir)) {
-          fs.mkdirSync(destDir, { recursive: true });
-        }
         fs.copyFileSync(wasmSource, wasmDest);
         console.log('✓ IFC.wasm copiado para client/public/');
       } else {
-        console.warn('⚠ IFC.wasm não encontrado. Baixando da internet...');
+        console.log('⚠ Baixando IFC.wasm do CDN...');
         const https = require('https');
-        const wasmDest = path.resolve(__dirname, 'client/public/IFC.wasm');
         const file = fs.createWriteStream(wasmDest);
         https.get('https://cdn.jsdelivr.net/npm/web-ifc@0.0.58/IFC.wasm', (response) => {
           response.pipe(file);
           file.on('finish', () => {
             file.close();
-            console.log('✓ IFC.wasm baixado do CDN para client/public/');
+            console.log('✓ IFC.wasm baixado do CDN');
           });
         }).on('error', (err) => {
           console.warn('⚠ Não foi possível baixar IFC.wasm:', err.message);
+          // Cria um arquivo vazio para não quebrar o build
+          fs.writeFileSync(wasmDest, '');
         });
       }
     });
@@ -81,10 +83,10 @@ esbuild.build({
   define: {
     'process.env.NODE_ENV': '"production"'
   },
-  // ⚠️ IMPORTANTE: Permite imports dinâmicos
+  target: ['es2020'],
+  // Permite imports dinâmicos
   splitting: false,
-  sourcemap: false,
-  target: ['es2020']
+  sourcemap: false
 }).then(() => {
   console.log('✓ viewer.bundle.js gerado com sucesso');
 }).catch(err => {
