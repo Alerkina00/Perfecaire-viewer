@@ -1,47 +1,18 @@
-// build.js — esbuild PerfecAire
+// build.js — PerfecAire
 //
-// NOTA: O viewer 3D (Three.js + web-ifc) roda via ES Modules inline no
-// viewer.html, carregado do CDN. Não é bundlado aqui para evitar:
-//   - LinkError no WASM do web-ifc (Emscripten quebra quando bundlado)
-//   - "Multiple instances of Three.js"
-//
-// Este build.js existe caso você adicione outros scripts JS para bundlar
-// (ex: painel admin, utilitários). Se não houver nada a bundlar, pode
-// simplesmente não chamar "npm run build:client" — o viewer.html funciona
-// direto sem nenhum bundle.
+// O viewer 3D usa ES Modules inline no viewer.html, carregados do CDN.
+// Não há nada para bundlar. Este script apenas garante que o viewer.bundle.js
+// antigo seja removido caso ainda exista no servidor, para evitar que o
+// Express o sirva como arquivo estático e cause conflito.
 
-const esbuild = require('esbuild');
-const path    = require('path');
-const fs      = require('fs');
+const fs   = require('fs');
+const path = require('path');
 
-// ─── Verifica se há algo para bundlar ────────────────────────────────────────
+const bundlePath = path.resolve(__dirname, 'client/public/viewer.bundle.js');
 
-const ENTRY = path.resolve(__dirname, 'client/src/admin.js'); // ajuste se necessário
-
-if (!fs.existsSync(ENTRY)) {
-  console.log('ℹ Nenhum entry point encontrado em client/src/admin.js');
-  console.log('  O viewer.html usa ES Modules inline — nenhum bundle necessário.');
-  console.log('  Adicione client/src/admin.js se quiser bundlar o painel admin.');
-  process.exit(0);
+if (fs.existsSync(bundlePath)) {
+  fs.unlinkSync(bundlePath);
+  console.log('✓ viewer.bundle.js antigo removido — o viewer agora usa CDN direto.');
+} else {
+  console.log('✓ Nenhum bundle antigo encontrado. Tudo limpo.');
 }
-
-// ─── Bundle do admin (se existir) ────────────────────────────────────────────
-
-esbuild.build({
-  entryPoints: [ENTRY],
-  bundle: true,
-  outfile: 'client/public/admin.bundle.js',
-  platform: 'browser',
-  format: 'iife',
-  define: {
-    'process.env.NODE_ENV': '"production"'
-  },
-  target: ['es2020'],
-  minify: true,
-  sourcemap: false,
-}).then(() => {
-  console.log('✓ admin.bundle.js gerado com sucesso');
-}).catch(err => {
-  console.error('✘ Build falhou:', err.message);
-  process.exit(1);
-});
