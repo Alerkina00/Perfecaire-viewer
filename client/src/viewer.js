@@ -4,31 +4,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
-// ⚠️ CORREÇÃO: web-ifc agora usa exportação diferente
-// Em vez de importar IFCLoader diretamente, usamos o Three.js com web-ifc
-// Vamos usar a abordagem com o loader correto
-
-let ifcLoader = null;
-
-// Função para carregar IFC usando a API correta
-async function loadIFC(url) {
-  // Importação dinâmica para evitar erro de build
-  const { IFCLoader } = await import('web-ifc');
-  
-  return new Promise((resolve, reject) => {
-    const loader = new IFCLoader();
-    loader.ifcManager.setWasmPath('/');
-    loader.ifcManager.useWebWorkers(false);
-    
-    loader.load(
-      url,
-      (model) => resolve(model),
-      (e) => setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`),
-      reject
-    );
-  });
-}
-
 // ─── Cena ────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('viewer-canvas');
@@ -84,6 +59,66 @@ scene.add(grid);
 window._grid = grid;
 
 // ─── Loaders ─────────────────────────────────────────────────────────────────
+
+// 🔧 CORREÇÃO: Carrega o IFCLoader via importação dinâmica
+let IFCLoaderModule = null;
+
+async function getIFCLoader() {
+  if (!IFCLoaderModule) {
+    try {
+      // Tenta importar de diferentes formas
+      const module = await import('web-ifc');
+      // O IFCLoader pode estar exportado de diferentes formas
+      IFCLoaderModule = module.IFCLoader || module.default?.IFCLoader || module;
+      console.log('✓ IFCLoader carregado:', typeof IFCLoaderModule);
+    } catch (err) {
+      console.error('Erro ao carregar IFCLoader:', err);
+      throw new Error('Não foi possível carregar o suporte a IFC');
+    }
+  }
+  return IFCLoaderModule;
+}
+
+async function loadIFC(url) {
+  try {
+    const IFCLoader = await getIFCLoader();
+    
+    // Verifica se o IFCLoader é uma função construtora
+    if (typeof IFCLoader !== 'function') {
+      throw new Error('IFCLoader não é uma função construtora. Tipo: ' + typeof IFCLoader);
+    }
+    
+    return new Promise((resolve, reject) => {
+      const loader = new IFCLoader();
+      
+      // Configura o caminho do WASM
+      if (loader.ifcManager) {
+        loader.ifcManager.setWasmPath('/');
+        loader.ifcManager.useWebWorkers(false);
+      }
+      
+      loader.load(
+        url,
+        (model) => {
+          console.log('✓ IFC carregado com sucesso');
+          resolve(model);
+        },
+        (e) => {
+          if (e.total) {
+            setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`);
+          }
+        },
+        (err) => {
+          console.error('Erro no carregamento IFC:', err);
+          reject(err);
+        }
+      );
+    });
+  } catch (err) {
+    console.error('Erro ao carregar IFC:', err);
+    throw err;
+  }
+}
 
 async function loadModel(url, fileType) {
   setStatus('Carregando modelo…');
@@ -169,14 +204,23 @@ function fitCamera(object) {
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
 
+  if (maxDim === 0) {
+    // Modelo muito pequeno, usa valores padrão
+    controls.target.set(0, 0, 0);
+    camera.position.set(10, 10, 10);
+    controls.update();
+    return;
+  }
+
   controls.target.copy(center);
-  camera.position.copy(center).add(new THREE.Vector3(maxDim, maxDim * 0.8, maxDim));
+  const distance = maxDim * 1.5;
+  camera.position.copy(center).add(new THREE.Vector3(distance, distance * 0.8, distance));
   camera.near = maxDim * 0.001;
   camera.far = maxDim * 100;
   camera.updateProjectionMatrix();
   controls.update();
 
-  grid.position.y = box.min.y;
+  grid.position.y = box.min.y || 0;
 }
 
 // ─── UI helpers ──────────────────────────────────────────────────────────────
@@ -244,3 +288,4 @@ init();
 window.loadModel = loadModel;
 window._scene = scene;
 window._fitCamera = fitCamera;
+window.loadIFC = loadIFC;
