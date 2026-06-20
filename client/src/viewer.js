@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import { IFCLoader } from 'web-ifc-three/IFCLoader';
+import { IFCLoader } from 'web-ifc';
 
 // ─── Cena ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +58,7 @@ const grid = new THREE.GridHelper(100, 50, 0x444466, 0x333355);
 grid.material.opacity = 0.4;
 grid.material.transparent = true;
 scene.add(grid);
+window._grid = grid;
 
 // ─── Loaders ─────────────────────────────────────────────────────────────────
 
@@ -66,7 +67,6 @@ let ifcLoader = null;
 function getIFCLoader() {
   if (!ifcLoader) {
     ifcLoader = new IFCLoader();
-    // ✅ CORRIGIDO: caminho correto para o WASM
     ifcLoader.ifcManager.setWasmPath('/');
     ifcLoader.ifcManager.useWebWorkers(false);
   }
@@ -151,7 +151,6 @@ function loadFBX(url) {
     new FBXLoader().load(
       url,
       (fbx) => {
-        // Normaliza escala FBX (costuma vir em centímetros)
         fbx.scale.setScalar(0.01);
         resolve(fbx);
       },
@@ -176,7 +175,6 @@ function fitCamera(object) {
   camera.updateProjectionMatrix();
   controls.update();
 
-  // Ajusta grade ao tamanho do modelo
   grid.position.y = box.min.y;
 }
 
@@ -215,15 +213,9 @@ function animate() {
 }
 animate();
 
-// Exporta objetos para uso nos botões
-window._scene = scene;
-window._grid = grid;
-window._fitCamera = fitCamera;
-
 // ─── Inicialização — carrega projeto da API ───────────────────────────────────
 
 async function init() {
-  // Pega slug da URL: /v/:slug
   const slug = window.location.pathname.split('/').pop();
   if (!slug) return setStatus('Nenhum projeto especificado', true);
 
@@ -238,7 +230,6 @@ async function init() {
       document.getElementById('project-desc').textContent = project.description;
     }
 
-    // ← USA PROXY: evita CORS entre browser e R2
     await loadModel(`/api/proxy/${project.slug}`, project.file_type);
 
   } catch (err) {
@@ -248,5 +239,7 @@ async function init() {
 
 init();
 
-// Exporta loadModel para debug via console
+// Exporta para debug
 window.loadModel = loadModel;
+window._scene = scene;
+window._fitCamera = fitCamera;
