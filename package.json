@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "build:client": "node build.js"
+    "build:client": "node -e \"const fs=require('fs'),p='client/public/viewer.bundle.js'; if(fs.existsSync(p)){fs.unlinkSync(p);console.log('✓ viewer.bundle.js removido (não é mais necessário)');}else{console.log('✓ Nada a remover');}\" "
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
