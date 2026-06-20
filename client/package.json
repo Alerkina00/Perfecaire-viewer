@@ -2,8 +2,5 @@
   "name": "perfecaire-viewer-client",
   "version": "1.0.0",
   "private": true,
-  "dependencies": {
-    "three": "^0.163.0",
-    "web-ifc": "^0.0.58"
-  }
+  "description": "Three.js e web-ifc carregados via CDN no viewer.html — sem dependências locais."
 }
