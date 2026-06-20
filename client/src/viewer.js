@@ -2,9 +2,32 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import { IFCLoader } from 'web-ifc';
+
+// ⚠️ CORREÇÃO: web-ifc agora usa exportação diferente
+// Em vez de importar IFCLoader diretamente, usamos o Three.js com web-ifc
+// Vamos usar a abordagem com o loader correto
+
+let ifcLoader = null;
+
+// Função para carregar IFC usando a API correta
+async function loadIFC(url) {
+  // Importação dinâmica para evitar erro de build
+  const { IFCLoader } = await import('web-ifc');
+  
+  return new Promise((resolve, reject) => {
+    const loader = new IFCLoader();
+    loader.ifcManager.setWasmPath('/');
+    loader.ifcManager.useWebWorkers(false);
+    
+    loader.load(
+      url,
+      (model) => resolve(model),
+      (e) => setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`),
+      reject
+    );
+  });
+}
 
 // ─── Cena ────────────────────────────────────────────────────────────────────
 
@@ -62,17 +85,6 @@ window._grid = grid;
 
 // ─── Loaders ─────────────────────────────────────────────────────────────────
 
-let ifcLoader = null;
-
-function getIFCLoader() {
-  if (!ifcLoader) {
-    ifcLoader = new IFCLoader();
-    ifcLoader.ifcManager.setWasmPath('/');
-    ifcLoader.ifcManager.useWebWorkers(false);
-  }
-  return ifcLoader;
-}
-
 async function loadModel(url, fileType) {
   setStatus('Carregando modelo…');
 
@@ -111,17 +123,6 @@ async function loadModel(url, fileType) {
     console.error('Erro ao carregar modelo:', err);
     setStatus(`Erro: ${err.message}`, true);
   }
-}
-
-function loadIFC(url) {
-  return new Promise((resolve, reject) => {
-    getIFCLoader().load(
-      url,
-      (model) => resolve(model),
-      (e) => setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`),
-      reject
-    );
-  });
 }
 
 function loadGLTF(url) {
@@ -213,7 +214,7 @@ function animate() {
 }
 animate();
 
-// ─── Inicialização — carrega projeto da API ───────────────────────────────────
+// ─── Inicialização ──────────────────────────────────────────────────────────
 
 async function init() {
   const slug = window.location.pathname.split('/').pop();
