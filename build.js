@@ -1,9 +1,3 @@
-// build.js — PerfecAire
-//
-// O viewer usa ES Modules inline no viewer.html, carregados do CDN.
-// Este script apenas remove o viewer.bundle.js antigo caso ainda exista,
-// evitando que o Express o sirva como estático e cause o erro de WASM/Three.js.
-
 const fs   = require('fs');
 const path = require('path');
 
