@@ -143,12 +143,22 @@
     <button class="ctrl-btn" id="btn-fullscreen" title="Tela cheia">⛶</button>
   </div>
 
-  <!-- Carrega tudo do CDN -->
+  <!--
+    IMPORTANTE: Todo o código Three.js roda via ES Modules direto do CDN.
+    O viewer.bundle.js (esbuild) NÃO é carregado aqui para evitar:
+      - LinkError no WASM do web-ifc (Emscripten quebra quando bundlado)
+      - "Multiple instances of Three.js" (conflito de versões)
+
+    O web-ifc-three é importado dinamicamente só quando um arquivo IFC
+    é carregado, garantindo que o ambiente Emscripten esteja íntegro.
+  -->
+
+  <!-- importmap: resolve "three" e "three/addons/" para o CDN -->
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
     }
   }
   </script>
@@ -156,11 +166,11 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-    import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+    import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+    import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
+    import { FBXLoader }     from 'three/addons/loaders/FBXLoader.js';
 
-    // ─── Cena ────────────────────────────────────────────────────────────────────
+    // ─── Renderer ────────────────────────────────────────────────────────────────
 
     const canvas = document.getElementById('viewer-canvas');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -171,6 +181,8 @@
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
+
+    // ─── Cena ────────────────────────────────────────────────────────────────────
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
@@ -188,18 +200,17 @@
 
     // ─── Iluminação ──────────────────────────────────────────────────────────────
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambient);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
     const sun = new THREE.DirectionalLight(0xffeedd, 1.2);
     sun.position.set(20, 40, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 200;
-    sun.shadow.camera.left = -50;
-    sun.shadow.camera.right = 50;
-    sun.shadow.camera.top = 50;
+    sun.shadow.camera.near   = 0.5;
+    sun.shadow.camera.far    = 200;
+    sun.shadow.camera.left   = -50;
+    sun.shadow.camera.right  = 50;
+    sun.shadow.camera.top    = 50;
     sun.shadow.camera.bottom = -50;
     scene.add(sun);
 
@@ -212,100 +223,66 @@
     grid.material.opacity = 0.4;
     grid.material.transparent = true;
     scene.add(grid);
-    window._grid = grid;
 
-    // ─── Loaders ─────────────────────────────────────────────────────────────────
+    // ─── IFC Loader ──────────────────────────────────────────────────────────────
+    //
+    // web-ifc usa Emscripten/WASM e NÃO pode ser bundlado com esbuild.
+    // Importamos dinamicamente do CDN apenas quando necessário.
+    // As versões do web-ifc e web-ifc-three DEVEM ser compatíveis entre si:
+    //   web-ifc-three@0.0.140 <-> web-ifc@0.0.58
+    //
+    const WEB_IFC_VERSION      = '0.0.58';
+    const WEB_IFC_THREE_CDN    = `https://cdn.jsdelivr.net/npm/web-ifc-three@0.0.140/IFCLoader.js`;
+    const WEB_IFC_WASM_PATH    = `https://cdn.jsdelivr.net/npm/web-ifc@${WEB_IFC_VERSION}/`;
 
-    // 🔧 CORREÇÃO: Usa CDN do web-ifc-three com versão que existe
+    // Cache do loader para não recarregar a cada arquivo
+    let _ifcLoaderClass = null;
+
+    async function getIFCLoaderClass() {
+      if (_ifcLoaderClass) return _ifcLoaderClass;
+      try {
+        const mod = await import(WEB_IFC_THREE_CDN);
+        _ifcLoaderClass = mod.IFCLoader;
+        if (!_ifcLoaderClass) throw new Error('IFCLoader não encontrado no módulo');
+        console.log('✓ web-ifc-three carregado do CDN');
+        return _ifcLoaderClass;
+      } catch (err) {
+        console.error('Falha ao carregar web-ifc-three:', err);
+        throw new Error('Não foi possível carregar o suporte a IFC. Verifique a conexão.');
+      }
+    }
+
     async function loadIFC(url) {
-      try {
-        // Versão 0.0.133 é a última estável
-        const { IFCLoader } = await import('https://cdn.jsdelivr.net/npm/web-ifc-three@0.0.133/IFCLoader.js');
-        
-        return new Promise((resolve, reject) => {
-          const loader = new IFCLoader();
-          
-          if (loader.ifcManager) {
-            loader.ifcManager.setWasmPath('https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/');
-            loader.ifcManager.useWebWorkers(false);
+      const IFCLoader = await getIFCLoaderClass();
+      const loader = new IFCLoader();
+
+      // Aponta o WASM para o CDN com a versão correta
+      if (loader.ifcManager) {
+        await loader.ifcManager.setWasmPath(WEB_IFC_WASM_PATH);
+        loader.ifcManager.useWebWorkers(false);
+      }
+
+      return new Promise((resolve, reject) => {
+        loader.load(
+          url,
+          (model) => {
+            console.log('✓ IFC carregado com sucesso');
+            resolve(model);
+          },
+          (e) => {
+            if (e.total) {
+              setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`);
+            }
+          },
+          (err) => {
+            console.error('Erro ao carregar IFC:', err);
+            reject(err);
           }
-          
-          loader.load(
-            url,
-            (model) => {
-              console.log('✓ IFC carregado com sucesso');
-              resolve(model);
-            },
-            (e) => {
-              if (e.total) {
-                setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`);
-              }
-            },
-            (err) => {
-              console.error('Erro no carregamento IFC:', err);
-              reject(err);
-            }
-          );
-        });
-      } catch (err) {
-        console.error('Erro ao carregar IFCLoader:', err);
-        // Fallback: tenta com versão diferente
-        try {
-          const { IFCLoader } = await import('https://unpkg.com/web-ifc-three@0.0.133/IFCLoader.js');
-          return new Promise((resolve, reject) => {
-            const loader = new IFCLoader();
-            if (loader.ifcManager) {
-              loader.ifcManager.setWasmPath('https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/');
-              loader.ifcManager.useWebWorkers(false);
-            }
-            loader.load(url, resolve, (e) => {
-              if (e.total) setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`);
-            }, reject);
-          });
-        } catch (err2) {
-          throw new Error('Não foi possível carregar o suporte a IFC. Tente usar GLTF, OBJ ou FBX.');
-        }
-      }
+        );
+      });
     }
 
-    async function loadModel(url, fileType) {
-      setStatus('Carregando modelo…');
-
-      const prev = scene.getObjectByName('__model__');
-      if (prev) scene.remove(prev);
-
-      let model;
-
-      try {
-        switch (fileType) {
-          case 'ifc':
-            model = await loadIFC(url);
-            break;
-          case 'gltf':
-          case 'glb':
-            model = await loadGLTF(url);
-            break;
-          case 'obj':
-            model = await loadOBJ(url);
-            break;
-          case 'fbx':
-            model = await loadFBX(url);
-            break;
-          default:
-            throw new Error(`Formato não suportado: ${fileType}`);
-        }
-
-        model.name = '__model__';
-        scene.add(model);
-        fitCamera(model);
-        setStatus('');
-        showInfo(`✓ ${fileType.toUpperCase()} carregado`);
-
-      } catch (err) {
-        console.error('Erro ao carregar modelo:', err);
-        setStatus(`Erro: ${err.message}`, true);
-      }
-    }
+    // ─── Loaders GLTF / OBJ / FBX ───────────────────────────────────────────────
 
     function loadGLTF(url) {
       return new Promise((resolve, reject) => {
@@ -320,12 +297,7 @@
 
     function loadOBJ(url) {
       return new Promise((resolve, reject) => {
-        new OBJLoader().load(
-          url,
-          (obj) => resolve(obj),
-          null,
-          reject
-        );
+        new OBJLoader().load(url, resolve, null, reject);
       });
     }
 
@@ -343,12 +315,49 @@
       });
     }
 
+    // ─── loadModel ───────────────────────────────────────────────────────────────
+
+    async function loadModel(url, fileType) {
+      setStatus('Carregando modelo…');
+
+      // Remove modelo anterior sem limpar luzes/grade
+      const prev = scene.getObjectByName('__model__');
+      if (prev) scene.remove(prev);
+
+      try {
+        let model;
+
+        switch (fileType) {
+          case 'ifc':                    model = await loadIFC(url);  break;
+          case 'gltf': case 'glb':      model = await loadGLTF(url); break;
+          case 'obj':                    model = await loadOBJ(url);  break;
+          case 'fbx':                    model = await loadFBX(url);  break;
+          default:
+            throw new Error(`Formato não suportado: ${fileType}`);
+        }
+
+        model.name = '__model__';
+        scene.add(model);
+        fitCamera(model);
+        setStatus('');
+        showInfo(`✓ ${fileType.toUpperCase()} carregado`);
+
+        // Atualiza badge de formato
+        const badge = document.getElementById('format-badge');
+        if (badge) badge.textContent = fileType.toUpperCase();
+
+      } catch (err) {
+        console.error('Erro ao carregar modelo:', err);
+        setStatus(`Erro: ${err.message}`, true);
+      }
+    }
+
     // ─── Câmera fit ──────────────────────────────────────────────────────────────
 
     function fitCamera(object) {
-      const box = new THREE.Box3().setFromObject(object);
+      const box    = new THREE.Box3().setFromObject(object);
       const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
+      const size   = box.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
 
       if (maxDim === 0) {
@@ -359,10 +368,10 @@
       }
 
       controls.target.copy(center);
-      const distance = maxDim * 1.5;
-      camera.position.copy(center).add(new THREE.Vector3(distance, distance * 0.8, distance));
+      const dist = maxDim * 1.5;
+      camera.position.copy(center).add(new THREE.Vector3(dist, dist * 0.8, dist));
       camera.near = maxDim * 0.001;
-      camera.far = maxDim * 100;
+      camera.far  = maxDim * 100;
       camera.updateProjectionMatrix();
       controls.update();
 
@@ -374,15 +383,15 @@
     function setStatus(msg, isError = false) {
       const el = document.getElementById('status');
       if (!el) return;
-      el.textContent = msg;
-      el.style.display = msg ? 'block' : 'none';
-      el.style.color = isError ? '#ff6b6b' : '#aaaacc';
+      el.textContent    = msg;
+      el.style.display  = msg ? 'block' : 'none';
+      el.style.color    = isError ? '#ff6b6b' : '#aaaacc';
     }
 
     function showInfo(msg) {
       const el = document.getElementById('info-toast');
       if (!el) return;
-      el.textContent = msg;
+      el.textContent   = msg;
       el.style.opacity = '1';
       setTimeout(() => { el.style.opacity = '0'; }, 3000);
     }
@@ -397,17 +406,16 @@
 
     // ─── Loop ────────────────────────────────────────────────────────────────────
 
-    function animate() {
+    (function animate() {
       requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
-    }
-    animate();
+    })();
 
     // ─── Inicialização ──────────────────────────────────────────────────────────
 
     async function init() {
-      const slug = window.location.pathname.split('/').pop();
+      const slug = window.location.pathname.split('/').filter(Boolean).pop();
       if (!slug) return setStatus('Nenhum projeto especificado', true);
 
       try {
@@ -430,30 +438,29 @@
 
     init();
 
-    // Exporta para debug
-    window.loadModel = loadModel;
-    window._scene = scene;
+    // Expõe para debug no console
+    window._scene     = scene;
+    window._camera    = camera;
+    window._controls  = controls;
     window._fitCamera = fitCamera;
+    window.loadModel  = loadModel;
 
     // ─── Botões ──────────────────────────────────────────────────────────────────
 
     document.getElementById('btn-fit').addEventListener('click', () => {
-      const model = window._scene && window._scene.getObjectByName('__model__');
-      if (model) window._fitCamera && window._fitCamera(model);
+      const model = scene.getObjectByName('__model__');
+      if (model) fitCamera(model);
     });
 
-    document.getElementById('btn-grid').addEventListener('click', function() {
-      const grid = window._grid;
-      if (grid) {
-        grid.visible = !grid.visible;
-        this.style.color = grid.visible ? '#aaaacc' : '#555588';
-      }
+    document.getElementById('btn-grid').addEventListener('click', function () {
+      grid.visible = !grid.visible;
+      this.style.color = grid.visible ? '#aaaacc' : '#555588';
     });
 
     let wireframeOn = false;
-    document.getElementById('btn-wire').addEventListener('click', function() {
+    document.getElementById('btn-wire').addEventListener('click', function () {
       wireframeOn = !wireframeOn;
-      const model = window._scene && window._scene.getObjectByName('__model__');
+      const model = scene.getObjectByName('__model__');
       if (model) {
         model.traverse(c => {
           if (c.isMesh) c.material.wireframe = wireframeOn;
