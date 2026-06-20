@@ -1,65 +1,31 @@
-const { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const { v4: uuidv4 } = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
-// Cloudflare R2 usa endpoint customizado
-const r2 = new S3Client({
-  region: 'auto',
-  endpoint: process.env.R2_ENDPOINT, // https://<account_id>.r2.cloudflarestorage.com
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
+// Armazenamento local (fallback sem S3)
+const UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
 
-const BUCKET = process.env.R2_BUCKET_NAME || 'perfecaire-models';
-
-/**
- * Faz upload de um arquivo para o R2
- * @param {Buffer} buffer - conteúdo do arquivo
- * @param {string} originalName - nome original para manter extensão
- * @param {string} mimeType
- * @returns {string} key do arquivo no bucket
- */
-async function uploadFile(buffer, originalName, mimeType) {
-  const ext = originalName.split('.').pop().toLowerCase();
-  const key = `models/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-  await r2.send(new PutObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-    Body: buffer,
-    ContentType: mimeType || 'application/octet-stream',
-    Metadata: {
-      originalName,
-    },
-  }));
-
-  return key;
+// Cria pasta se não existir
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-/**
- * Gera URL assinada (válida por 1h) para o viewer carregar o arquivo
- */
-async function getSignedFileUrl(key, expiresIn = 3600) {
-  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
-  return getSignedUrl(r2, command, { expiresIn });
+async function uploadFile(buffer, fileName, mimeType) {
+  const filePath = path.join(UPLOAD_DIR, fileName);
+  fs.writeFileSync(filePath, buffer);
+  return fileName; // Retorna o nome do arquivo como key
 }
 
-/**
- * URL pública — só use se o bucket for público
- */
-function getPublicUrl(key) {
-  const base = process.env.R2_PUBLIC_URL; // ex: https://models.perfecaire.com.br
-  if (!base) return null;
-  return `${base}/${key}`;
+async function getFileUrl(fileKey) {
+  // Serve o arquivo localmente
+  return `/uploads/${fileKey}`;
 }
 
-/**
- * Remove arquivo do bucket
- */
-async function deleteFile(key) {
-  await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+async function getFileStream(fileKey) {
+  const filePath = path.join(UPLOAD_DIR, fileKey);
+  if (!fs.existsSync(filePath)) {
+    throw new Error('Arquivo não encontrado');
+  }
+  return fs.createReadStream(filePath);
 }
 
-module.exports = { uploadFile, getSignedFileUrl, getPublicUrl, deleteFile };
+module.exports = { uploadFile, getFileUrl, getFileStream };
