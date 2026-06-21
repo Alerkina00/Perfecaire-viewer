@@ -1,6 +1,7 @@
 const fs   = require('fs');
 const path = require('path');
 
+// Remove arquivos antigos que causam o erro de WASM/bundle
 const toRemove = [
   path.resolve(__dirname, 'client/public/viewer.bundle.js'),
   path.resolve(__dirname, 'client/public/IFC.wasm'),
