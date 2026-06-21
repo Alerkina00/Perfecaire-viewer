@@ -6,124 +6,49 @@
   <title>PerfecAire Viewer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      background: #1a1a2e;
-      color: #e0e0f0;
-      font-family: system-ui, -apple-system, sans-serif;
-      overflow: hidden;
-    }
-
-    #viewer-canvas {
-      display: block;
-      width: 100vw;
-      height: 100vh;
-    }
-
+    body { background: #1a1a2e; color: #e0e0f0; font-family: system-ui, sans-serif; overflow: hidden; }
+    #viewer-canvas { display: block; width: 100vw; height: 100vh; }
     #header {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      display: flex;
-      align-items: center;
-      gap: 12px;
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; gap: 12px;
       padding: 12px 20px;
       background: linear-gradient(to bottom, rgba(26,26,46,0.95), transparent);
-      pointer-events: none;
-      z-index: 10;
+      pointer-events: none; z-index: 10;
     }
-
-    #logo-text {
-      font-size: 13px;
-      font-weight: 700;
-      color: #6060cc;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    #project-name {
-      font-size: 15px;
-      font-weight: 600;
-      color: #e0e0f0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    #project-desc {
-      font-size: 12px;
-      color: #8888aa;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
+    #logo-text { font-size: 13px; font-weight: 700; color: #6060cc; letter-spacing: 0.08em; text-transform: uppercase; }
+    #project-name { font-size: 15px; font-weight: 600; color: #e0e0f0; }
+    #project-desc { font-size: 12px; color: #8888aa; }
     #status {
-      position: fixed;
-      bottom: 60px; left: 50%; transform: translateX(-50%);
-      background: rgba(20,20,40,0.9);
-      color: #aaaacc;
-      padding: 8px 20px;
-      border-radius: 20px;
-      font-size: 13px;
-      border: 1px solid rgba(100,100,180,0.3);
-      display: none;
-      z-index: 10;
+      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+      background: rgba(20,20,40,0.9); color: #aaaacc;
+      padding: 8px 20px; border-radius: 20px; font-size: 13px;
+      border: 1px solid rgba(100,100,180,0.3); display: none; z-index: 10;
     }
-
     #info-toast {
-      position: fixed;
-      bottom: 20px; left: 50%; transform: translateX(-50%);
-      background: rgba(20,180,120,0.15);
-      color: #4ec9a0;
-      padding: 6px 18px;
-      border-radius: 20px;
-      font-size: 13px;
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(20,180,120,0.15); color: #4ec9a0;
+      padding: 6px 18px; border-radius: 20px; font-size: 13px;
       border: 1px solid rgba(78,201,160,0.3);
-      opacity: 0;
-      transition: opacity 0.5s;
-      z-index: 10;
+      opacity: 0; transition: opacity 0.5s; z-index: 10;
     }
-
-    #controls {
-      position: fixed;
-      bottom: 20px; right: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      z-index: 10;
-    }
-
+    #controls { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 10; }
     .ctrl-btn {
       width: 40px; height: 40px;
-      background: rgba(30,30,60,0.85);
-      border: 1px solid rgba(100,100,180,0.35);
-      border-radius: 10px;
-      color: #aaaacc;
-      font-size: 18px;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: background 0.2s;
+      background: rgba(30,30,60,0.85); border: 1px solid rgba(100,100,180,0.35);
+      border-radius: 10px; color: #aaaacc; font-size: 18px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; transition: background 0.2s;
     }
     .ctrl-btn:hover { background: rgba(60,60,120,0.9); color: #fff; }
-
     #format-badge {
-      position: fixed;
-      top: 60px; right: 20px;
-      background: rgba(100,60,200,0.2);
-      color: #a090ff;
-      padding: 4px 10px;
-      border-radius: 8px;
-      font-size: 11px;
-      font-weight: 600;
-      border: 1px solid rgba(100,60,200,0.35);
-      letter-spacing: 0.05em;
-      z-index: 10;
+      position: fixed; top: 60px; right: 20px;
+      background: rgba(100,60,200,0.2); color: #a090ff;
+      padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 600;
+      border: 1px solid rgba(100,60,200,0.35); letter-spacing: 0.05em; z-index: 10;
     }
   </style>
 </head>
 <body>
   <canvas id="viewer-canvas"></canvas>
-
   <div id="header">
     <span id="logo-text">PerfecAire</span>
     <div>
@@ -131,14 +56,12 @@
       <div id="project-desc"></div>
     </div>
   </div>
-
   <div id="format-badge">—</div>
-  <div id="status" style="display:none"></div>
+  <div id="status"></div>
   <div id="info-toast"></div>
-
   <div id="controls">
-    <button class="ctrl-btn" id="btn-fit" title="Centralizar modelo">⊙</button>
-    <button class="ctrl-btn" id="btn-grid" title="Mostrar/ocultar grade">⊞</button>
+    <button class="ctrl-btn" id="btn-fit" title="Centralizar">⊙</button>
+    <button class="ctrl-btn" id="btn-grid" title="Grade">⊞</button>
     <button class="ctrl-btn" id="btn-wire" title="Wireframe">⬡</button>
     <button class="ctrl-btn" id="btn-fullscreen" title="Tela cheia">⛶</button>
   </div>
@@ -146,10 +69,8 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.149.0/examples/jsm/",
-      "three/examples/jsm/utils/BufferGeometryUtils": "https://cdn.jsdelivr.net/npm/three@0.149.0/examples/jsm/utils/BufferGeometryUtils.js",
-      "web-ifc": "/ifc-libs/web-ifc/web-ifc-api-browser.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
     }
   }
   </script>
@@ -166,7 +87,6 @@
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
@@ -186,65 +106,26 @@
     controls.maxDistance = 500;
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-
     const sun = new THREE.DirectionalLight(0xffeedd, 1.2);
     sun.position.set(20, 40, 20);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near   = 0.5;
-    sun.shadow.camera.far    = 200;
-    sun.shadow.camera.left   = -50;
-    sun.shadow.camera.right  = 50;
-    sun.shadow.camera.top    = 50;
-    sun.shadow.camera.bottom = -50;
     scene.add(sun);
-
-    const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
-    fill.position.set(-20, 10, -20);
-    scene.add(fill);
+    scene.add(new THREE.DirectionalLight(0xaaccff, 0.4)).position.set(-20, 10, -20);
 
     const grid = new THREE.GridHelper(100, 50, 0x444466, 0x333355);
     grid.material.opacity = 0.4;
     grid.material.transparent = true;
     scene.add(grid);
 
-    let _IFCLoader = null;
-
-    async function getIFCLoader() {
-      if (_IFCLoader) return _IFCLoader;
-      const mod = await import('/ifc-libs/web-ifc-three/IFCLoader.js');
-      _IFCLoader = mod.IFCLoader;
-      return _IFCLoader;
-    }
-
-    async function loadIFC(url) {
-      const IFCLoader = await getIFCLoader();
-      const loader = new IFCLoader();
-      if (loader.ifcManager) {
-        await loader.ifcManager.setWasmPath('/ifc-libs/web-ifc/');
-        loader.ifcManager.useWebWorkers(false);
-      }
-      return new Promise((resolve, reject) => {
-        loader.load(
-          url,
-          resolve,
-          (e) => { if (e.total) setStatus('Carregando IFC… ' + Math.round(e.loaded / e.total * 100) + '%'); },
-          reject
-        );
-      });
-    }
-
     function loadGLTF(url) {
       return new Promise((resolve, reject) =>
         new GLTFLoader().load(url, g => resolve(g.scene),
-          e => e.total && setStatus('Carregando… ' + Math.round(e.loaded/e.total*100) + '%'), reject));
+          e => e.total && setStatus('Carregando… ' + Math.round(e.loaded/e.total*100) + '%'),
+          reject));
     }
-
     function loadOBJ(url) {
-      return new Promise((resolve, reject) =>
-        new OBJLoader().load(url, resolve, null, reject));
+      return new Promise((resolve, reject) => new OBJLoader().load(url, resolve, null, reject));
     }
-
     function loadFBX(url) {
       return new Promise((resolve, reject) =>
         new FBXLoader().load(url, fbx => { fbx.scale.setScalar(0.01); resolve(fbx); }, null, reject));
@@ -254,24 +135,24 @@
       setStatus('Carregando modelo…');
       const prev = scene.getObjectByName('__model__');
       if (prev) scene.remove(prev);
-
       try {
         let model;
-        switch (fileType) {
-          case 'ifc':               model = await loadIFC(url);  break;
-          case 'gltf': case 'glb':  model = await loadGLTF(url); break;
-          case 'obj':               model = await loadOBJ(url);  break;
-          case 'fbx':               model = await loadFBX(url);  break;
-          default: throw new Error('Formato não suportado: ' + fileType);
+        // IFC já foi convertido para GLTF pelo servidor
+        if (fileType === 'ifc' || fileType === 'gltf' || fileType === 'glb') {
+          model = await loadGLTF(url);
+        } else if (fileType === 'obj') {
+          model = await loadOBJ(url);
+        } else if (fileType === 'fbx') {
+          model = await loadFBX(url);
+        } else {
+          throw new Error('Formato não suportado: ' + fileType);
         }
-
         model.name = '__model__';
         scene.add(model);
         fitCamera(model);
         setStatus('');
-        showInfo('✓ ' + fileType.toUpperCase() + ' carregado');
+        showInfo('✓ Modelo carregado');
         document.getElementById('format-badge').textContent = fileType.toUpperCase();
-
       } catch (err) {
         console.error('Erro ao carregar modelo:', err);
         setStatus('Erro: ' + err.message, true);
@@ -283,14 +164,7 @@
       const center = box.getCenter(new THREE.Vector3());
       const size   = box.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
-
-      if (maxDim === 0) {
-        controls.target.set(0, 0, 0);
-        camera.position.set(10, 10, 10);
-        controls.update();
-        return;
-      }
-
+      if (maxDim === 0) { camera.position.set(10,10,10); controls.update(); return; }
       controls.target.copy(center);
       const dist = maxDim * 1.5;
       camera.position.copy(center).add(new THREE.Vector3(dist, dist * 0.8, dist));
@@ -303,16 +177,14 @@
 
     function setStatus(msg, isError) {
       const el = document.getElementById('status');
-      if (!el) return;
-      el.textContent   = msg;
+      el.textContent = msg;
       el.style.display = msg ? 'block' : 'none';
-      el.style.color   = isError ? '#ff6b6b' : '#aaaacc';
+      el.style.color = isError ? '#ff6b6b' : '#aaaacc';
     }
 
     function showInfo(msg) {
       const el = document.getElementById('info-toast');
-      if (!el) return;
-      el.textContent   = msg;
+      el.textContent = msg;
       el.style.opacity = '1';
       setTimeout(function() { el.style.opacity = '0'; }, 3000);
     }
@@ -332,41 +204,28 @@
     async function init() {
       const slug = window.location.pathname.split('/').filter(Boolean).pop();
       if (!slug) return setStatus('Nenhum projeto especificado', true);
-
       try {
         const res = await fetch('/api/projects/' + slug);
         if (!res.ok) throw new Error('Projeto não encontrado');
         const project = await res.json();
-
-        document.title = project.name + ' — PerfecAire Viewer';
+        document.title = project.name + ' — PerfecAire';
         document.getElementById('project-name').textContent = project.name;
-        if (project.description) {
-          document.getElementById('project-desc').textContent = project.description;
-        }
-
+        if (project.description) document.getElementById('project-desc').textContent = project.description;
         await loadModel('/api/proxy/' + project.slug, project.file_type);
       } catch (err) {
         setStatus(err.message, true);
       }
     }
-
     init();
-
-    window._scene    = scene;
-    window._camera   = camera;
-    window._controls = controls;
-    window.loadModel = loadModel;
 
     document.getElementById('btn-fit').addEventListener('click', function() {
       const m = scene.getObjectByName('__model__');
       if (m) fitCamera(m);
     });
-
     document.getElementById('btn-grid').addEventListener('click', function() {
       grid.visible = !grid.visible;
       this.style.color = grid.visible ? '#aaaacc' : '#555588';
     });
-
     var wireOn = false;
     document.getElementById('btn-wire').addEventListener('click', function() {
       wireOn = !wireOn;
@@ -374,7 +233,6 @@
       if (m) m.traverse(function(c) { if (c.isMesh) c.material.wireframe = wireOn; });
       this.style.color = wireOn ? '#a090ff' : '#aaaacc';
     });
-
     document.getElementById('btn-fullscreen').addEventListener('click', function() {
       if (!document.fullscreenElement) document.documentElement.requestFullscreen();
       else document.exitFullscreen();
