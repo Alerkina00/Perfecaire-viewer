@@ -12,8 +12,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Arquivos estáticos
+// Arquivos estáticos do cliente
 app.use(express.static(path.join(__dirname, '../client/public')));
+
+// Serve os arquivos do web-ifc e web-ifc-three direto do node_modules
+// Isso evita problemas de CORS com CDNs externos
+app.use('/ifc-libs/web-ifc-three', express.static(
+  path.join(__dirname, '../node_modules/web-ifc-three')
+));
+app.use('/ifc-libs/web-ifc', express.static(
+  path.join(__dirname, '../node_modules/web-ifc')
+));
 
 // Rotas
 app.use('/api/auth', require('./routes/auth'));
@@ -26,18 +35,22 @@ app.get('/v/:slug', (req, res) => {
 });
 
 // Rota admin
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/public/admin.html'));
+});
 app.get('/admin.html', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/public/admin.html'));
 });
 
+// Health check
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
 // Inicializa o banco e sobe o servidor
 async function start() {
   await getDb();
-  
+
   app.listen(PORT, () => {
-    console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
-    console.log(`📊 Admin: http://localhost:${PORT}/admin.html`);
-    console.log(`👤 Login: admin / senha: admin123`);
+    console.log(`Servidor rodando na porta ${PORT}`);
   });
 }
 
