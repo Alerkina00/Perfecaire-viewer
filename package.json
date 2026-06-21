@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "build:client": "node build.js"
+    "build": "echo 'sem build necessario'",
+    "build:client": "echo 'sem build necessario'"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
