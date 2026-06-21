@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "build": "echo 'sem build necessario'",
-    "build:client": "echo 'sem build necessario'"
+    "build": "echo 'ok'",
+    "build:client": "echo 'ok'"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -20,7 +20,6 @@
     "qrcode": "^1.5.3",
     "@aws-sdk/client-s3": "^3.540.0",
     "@aws-sdk/s3-request-presigner": "^3.540.0",
-    "web-ifc-three": "0.0.126",
     "web-ifc": "0.0.51"
   },
   "devDependencies": {
