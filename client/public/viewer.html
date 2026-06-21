@@ -143,7 +143,6 @@
     <button class="ctrl-btn" id="btn-fullscreen" title="Tela cheia">⛶</button>
   </div>
 
-  <!-- Three.js via importmap do CDN — única instância, sem bundle -->
   <script type="importmap">
   {
     "imports": {
@@ -160,8 +159,6 @@
     import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
     import { FBXLoader }     from 'three/addons/loaders/FBXLoader.js';
 
-    // ─── Renderer ────────────────────────────────────────────────────────────
-
     const canvas = document.getElementById('viewer-canvas');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -171,8 +168,6 @@
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
-
-    // ─── Cena ────────────────────────────────────────────────────────────────
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
@@ -187,8 +182,6 @@
     controls.screenSpacePanning = true;
     controls.minDistance = 0.5;
     controls.maxDistance = 500;
-
-    // ─── Iluminação ──────────────────────────────────────────────────────────
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
@@ -208,61 +201,41 @@
     fill.position.set(-20, 10, -20);
     scene.add(fill);
 
-    // Grade
     const grid = new THREE.GridHelper(100, 50, 0x444466, 0x333355);
     grid.material.opacity = 0.4;
     grid.material.transparent = true;
     scene.add(grid);
 
-    // ─── IFC Loader (via CDN, nunca bundlado) ────────────────────────────────
-    //
-    // web-ifc usa Emscripten/WASM. Quando bundlado pelo esbuild, o runtime
-    // Emscripten perde o vínculo com o WASM causando:
-    //   LinkError: Import #0 "a" "a": function import requires a callable
-    //
-    // Solução: importar dinamicamente do CDN apenas quando necessário.
-    // Versões pinadas e compatíveis entre si:
-    //   web-ifc-three@0.0.140  ←→  web-ifc@0.0.58
-
     let _IFCLoader = null;
 
     async function getIFCLoader() {
       if (_IFCLoader) return _IFCLoader;
-    const { IFCLoader } = await import(
-  'https://unpkg.com/web-ifc-three@0.0.140/IFCLoader.js'
-);
-      );
-      _IFCLoader = IFCLoader;
+      const mod = await import('https://unpkg.com/web-ifc-three@0.0.140/IFCLoader.js');
+      _IFCLoader = mod.IFCLoader;
       return _IFCLoader;
     }
 
     async function loadIFC(url) {
       const IFCLoader = await getIFCLoader();
       const loader = new IFCLoader();
-
       if (loader.ifcManager) {
-        await loader.ifcManager.setWasmPath(
-  'https://unpkg.com/web-ifc@0.0.58/'
-);
+        await loader.ifcManager.setWasmPath('https://unpkg.com/web-ifc@0.0.58/');
         loader.ifcManager.useWebWorkers(false);
       }
-
       return new Promise((resolve, reject) => {
         loader.load(
           url,
           resolve,
-          (e) => { if (e.total) setStatus(`Carregando IFC… ${Math.round(e.loaded / e.total * 100)}%`); },
+          (e) => { if (e.total) setStatus('Carregando IFC… ' + Math.round(e.loaded / e.total * 100) + '%'); },
           reject
         );
       });
     }
 
-    // ─── Loaders GLTF / OBJ / FBX ───────────────────────────────────────────
-
     function loadGLTF(url) {
       return new Promise((resolve, reject) =>
         new GLTFLoader().load(url, g => resolve(g.scene),
-          e => e.total && setStatus(`Carregando… ${Math.round(e.loaded/e.total*100)}%`), reject));
+          e => e.total && setStatus('Carregando… ' + Math.round(e.loaded/e.total*100) + '%'), reject));
     }
 
     function loadOBJ(url) {
@@ -275,8 +248,6 @@
         new FBXLoader().load(url, fbx => { fbx.scale.setScalar(0.01); resolve(fbx); }, null, reject));
     }
 
-    // ─── loadModel ───────────────────────────────────────────────────────────
-
     async function loadModel(url, fileType) {
       setStatus('Carregando modelo…');
       const prev = scene.getObjectByName('__model__');
@@ -285,27 +256,25 @@
       try {
         let model;
         switch (fileType) {
-          case 'ifc':              model = await loadIFC(url);  break;
-          case 'gltf': case 'glb': model = await loadGLTF(url); break;
-          case 'obj':              model = await loadOBJ(url);  break;
-          case 'fbx':              model = await loadFBX(url);  break;
-          default: throw new Error(`Formato não suportado: ${fileType}`);
+          case 'ifc':               model = await loadIFC(url);  break;
+          case 'gltf': case 'glb':  model = await loadGLTF(url); break;
+          case 'obj':               model = await loadOBJ(url);  break;
+          case 'fbx':               model = await loadFBX(url);  break;
+          default: throw new Error('Formato não suportado: ' + fileType);
         }
 
         model.name = '__model__';
         scene.add(model);
         fitCamera(model);
         setStatus('');
-        showInfo(`✓ ${fileType.toUpperCase()} carregado`);
+        showInfo('✓ ' + fileType.toUpperCase() + ' carregado');
         document.getElementById('format-badge').textContent = fileType.toUpperCase();
 
       } catch (err) {
         console.error('Erro ao carregar modelo:', err);
-        setStatus(`Erro: ${err.message}`, true);
+        setStatus('Erro: ' + err.message, true);
       }
     }
-
-    // ─── Câmera fit ──────────────────────────────────────────────────────────
 
     function fitCamera(object) {
       const box    = new THREE.Box3().setFromObject(object);
@@ -330,9 +299,7 @@
       grid.position.y = box.min.y || 0;
     }
 
-    // ─── UI helpers ──────────────────────────────────────────────────────────
-
-    function setStatus(msg, isError = false) {
+    function setStatus(msg, isError) {
       const el = document.getElementById('status');
       if (!el) return;
       el.textContent   = msg;
@@ -345,18 +312,14 @@
       if (!el) return;
       el.textContent   = msg;
       el.style.opacity = '1';
-      setTimeout(() => { el.style.opacity = '0'; }, 3000);
+      setTimeout(function() { el.style.opacity = '0'; }, 3000);
     }
 
-    // ─── Resize ──────────────────────────────────────────────────────────────
-
-    window.addEventListener('resize', () => {
+    window.addEventListener('resize', function() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
-
-    // ─── Loop ────────────────────────────────────────────────────────────────
 
     (function animate() {
       requestAnimationFrame(animate);
@@ -364,24 +327,22 @@
       renderer.render(scene, camera);
     })();
 
-    // ─── Inicialização ───────────────────────────────────────────────────────
-
     async function init() {
       const slug = window.location.pathname.split('/').filter(Boolean).pop();
       if (!slug) return setStatus('Nenhum projeto especificado', true);
 
       try {
-        const res = await fetch(`/api/projects/${slug}`);
+        const res = await fetch('/api/projects/' + slug);
         if (!res.ok) throw new Error('Projeto não encontrado');
         const project = await res.json();
 
-        document.title = `${project.name} — PerfecAire Viewer`;
+        document.title = project.name + ' — PerfecAire Viewer';
         document.getElementById('project-name').textContent = project.name;
         if (project.description) {
           document.getElementById('project-desc').textContent = project.description;
         }
 
-        await loadModel(`/api/proxy/${project.slug}`, project.file_type);
+        await loadModel('/api/proxy/' + project.slug, project.file_type);
       } catch (err) {
         setStatus(err.message, true);
       }
@@ -389,33 +350,30 @@
 
     init();
 
-    // Debug
     window._scene    = scene;
     window._camera   = camera;
     window._controls = controls;
     window.loadModel = loadModel;
 
-    // ─── Botões ──────────────────────────────────────────────────────────────
-
-    document.getElementById('btn-fit').addEventListener('click', () => {
+    document.getElementById('btn-fit').addEventListener('click', function() {
       const m = scene.getObjectByName('__model__');
       if (m) fitCamera(m);
     });
 
-    document.getElementById('btn-grid').addEventListener('click', function () {
+    document.getElementById('btn-grid').addEventListener('click', function() {
       grid.visible = !grid.visible;
       this.style.color = grid.visible ? '#aaaacc' : '#555588';
     });
 
-    let wireOn = false;
-    document.getElementById('btn-wire').addEventListener('click', function () {
+    var wireOn = false;
+    document.getElementById('btn-wire').addEventListener('click', function() {
       wireOn = !wireOn;
       const m = scene.getObjectByName('__model__');
-      if (m) m.traverse(c => { if (c.isMesh) c.material.wireframe = wireOn; });
+      if (m) m.traverse(function(c) { if (c.isMesh) c.material.wireframe = wireOn; });
       this.style.color = wireOn ? '#a090ff' : '#aaaacc';
     });
 
-    document.getElementById('btn-fullscreen').addEventListener('click', () => {
+    document.getElementById('btn-fullscreen').addEventListener('click', function() {
       if (!document.fullscreenElement) document.documentElement.requestFullscreen();
       else document.exitFullscreen();
     });
