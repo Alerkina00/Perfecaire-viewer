@@ -15,14 +15,17 @@ app.use(express.urlencoded({ extended: true }));
 // Arquivos estáticos do cliente
 app.use(express.static(path.join(__dirname, '../client/public')));
 
-// Serve os arquivos do web-ifc e web-ifc-three direto do node_modules
-// Isso evita problemas de CORS com CDNs externos
-app.use('/ifc-libs/web-ifc-three', express.static(
-  path.join(__dirname, '../node_modules/web-ifc-three')
-));
-app.use('/ifc-libs/web-ifc', express.static(
-  path.join(__dirname, '../node_modules/web-ifc')
-));
+// Serve web-ifc-three e web-ifc do node_modules
+// require.resolve acha o caminho correto em qualquer ambiente
+try {
+  const webIfcThreeDir = path.dirname(require.resolve('web-ifc-three/IFCLoader.js'));
+  const webIfcDir = path.dirname(require.resolve('web-ifc/web-ifc-api-browser.js'));
+  app.use('/ifc-libs/web-ifc-three', express.static(webIfcThreeDir));
+  app.use('/ifc-libs/web-ifc', express.static(webIfcDir));
+  console.log('IFC libs servidas de:', webIfcThreeDir);
+} catch (e) {
+  console.warn('web-ifc-three não encontrado:', e.message);
+}
 
 // Rotas
 app.use('/api/auth', require('./routes/auth'));
@@ -48,7 +51,6 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 // Inicializa o banco e sobe o servidor
 async function start() {
   await getDb();
-
   app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
   });
@@ -56,7 +58,6 @@ async function start() {
 
 start().catch(console.error);
 
-// Salva o banco ao fechar
 process.on('SIGINT', () => {
   saveDb();
   process.exit();
