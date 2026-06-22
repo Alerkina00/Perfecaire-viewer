@@ -15,18 +15,6 @@ app.use(express.urlencoded({ extended: true }));
 // Arquivos estáticos do cliente
 app.use(express.static(path.join(__dirname, '../client/public')));
 
-// Serve web-ifc-three e web-ifc do node_modules
-// require.resolve acha o caminho correto em qualquer ambiente
-try {
-  const webIfcThreeDir = path.dirname(require.resolve('web-ifc-three/IFCLoader.js'));
-  const webIfcDir = path.dirname(require.resolve('web-ifc/web-ifc-api-browser.js'));
-  app.use('/ifc-libs/web-ifc-three', express.static(webIfcThreeDir));
-  app.use('/ifc-libs/web-ifc', express.static(webIfcDir));
-  console.log('IFC libs servidas de:', webIfcThreeDir);
-} catch (e) {
-  console.warn('web-ifc-three não encontrado:', e.message);
-}
-
 // Rotas
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/projects', require('./routes/projects'));
