@@ -1,7 +1,8 @@
-// src/services/converter.js - Versão atualizada
+// src/services/converter.js
+// NOTA: @gltf-transform é ESM puro — não usar require() no topo.
+// A conversão GLTF+BIN→GLB usa método manual (sem dependência ESM).
+
 const WebIFC = require('web-ifc');
-const { parse: parseGltf, encode: encodeGltf } = require('@gltf-transform/core');
-const { ALL_EXTENSIONS } = require('@gltf-transform/extensions');
 
 let ifcApi = null;
 
@@ -34,7 +35,7 @@ async function ifcToGltf(ifcBuffer) {
       const geom = api.GetGeometry(modelID, pg.geometryExpressID);
 
       const vertSize = geom.GetVertexDataSize();
-      const idxSize = geom.GetIndexDataSize();
+      const idxSize  = geom.GetIndexDataSize();
 
       if (vertSize === 0 || idxSize === 0) {
         geom.delete();
@@ -42,20 +43,15 @@ async function ifcToGltf(ifcBuffer) {
         continue;
       }
 
-      const rawVerts = api.GetVertexArray(geom.GetVertexData(), vertSize);
-      const rawIdx = api.GetIndexArray(geom.GetIndexData(), idxSize);
+      const rawVerts   = api.GetVertexArray(geom.GetVertexData(), vertSize);
+      const rawIdx     = api.GetIndexArray(geom.GetIndexData(), idxSize);
 
-      const verts = new Float32Array(rawVerts.length);
+      const verts   = new Float32Array(rawVerts.length);
       verts.set(rawVerts);
       const indices = new Uint32Array(rawIdx.length);
       indices.set(rawIdx);
 
-      const color = {
-        x: pg.color.x,
-        y: pg.color.y,
-        z: pg.color.z,
-        w: pg.color.w,
-      };
+      const color = { x: pg.color.x, y: pg.color.y, z: pg.color.z, w: pg.color.w };
       const transform = Array.from(pg.flatTransformation);
 
       geom.delete();
@@ -74,7 +70,8 @@ async function ifcToGltf(ifcBuffer) {
 }
 
 /**
- * Constrói GLTF a partir de meshes extraídas do IFC
+ * Constrói GLTF a partir de meshes extraídas do IFC.
+ * Retorna Buffer JSON com dados embutidos em data URI (sem arquivo .bin externo).
  */
 function buildGltfFromMeshes(meshes) {
   const gltf = {
@@ -93,37 +90,34 @@ function buildGltfFromMeshes(meshes) {
   let byteOffset = 0;
 
   for (const mesh of meshes) {
-    const stride = 6;
+    const stride    = 6;
     const vertCount = mesh.verts.length / stride;
 
     const positions = new Float32Array(vertCount * 3);
-    const normals = new Float32Array(vertCount * 3);
+    const normals   = new Float32Array(vertCount * 3);
 
     for (let i = 0; i < vertCount; i++) {
       const s = i * stride;
-      positions[i * 3] = mesh.verts[s];
+      positions[i * 3]     = mesh.verts[s];
       positions[i * 3 + 1] = mesh.verts[s + 1];
       positions[i * 3 + 2] = mesh.verts[s + 2];
-      normals[i * 3] = mesh.verts[s + 3];
-      normals[i * 3 + 1] = mesh.verts[s + 4];
-      normals[i * 3 + 2] = mesh.verts[s + 5];
+      normals[i * 3]       = mesh.verts[s + 3];
+      normals[i * 3 + 1]   = mesh.verts[s + 4];
+      normals[i * 3 + 2]   = mesh.verts[s + 5];
     }
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (let i = 0; i < vertCount; i++) {
-      const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z;
-      if (z > maxZ) maxZ = z;
+      const x = positions[i*3], y = positions[i*3+1], z = positions[i*3+2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
     }
 
-    const posBytes = Buffer.from(positions.buffer);
+    const posBytes  = Buffer.from(positions.buffer);
     const normBytes = Buffer.from(normals.buffer);
-    const idxBytes = Buffer.from(mesh.indices.buffer);
+    const idxBytes  = Buffer.from(mesh.indices.buffer);
 
     const bvPos = gltf.bufferViews.length;
     gltf.bufferViews.push({ buffer: 0, byteOffset, byteLength: posBytes.length, target: 34962 });
@@ -142,29 +136,18 @@ function buildGltfFromMeshes(meshes) {
 
     const accPos = gltf.accessors.length;
     gltf.accessors.push({
-      bufferView: bvPos,
-      byteOffset: 0,
-      componentType: 5126,
-      count: vertCount,
-      type: 'VEC3',
-      min: [minX, minY, minZ],
-      max: [maxX, maxY, maxZ]
+      bufferView: bvPos, byteOffset: 0, componentType: 5126,
+      count: vertCount, type: 'VEC3', min: [minX,minY,minZ], max: [maxX,maxY,maxZ],
     });
     const accNorm = gltf.accessors.length;
     gltf.accessors.push({
-      bufferView: bvNorm,
-      byteOffset: 0,
-      componentType: 5126,
-      count: vertCount,
-      type: 'VEC3'
+      bufferView: bvNorm, byteOffset: 0, componentType: 5126,
+      count: vertCount, type: 'VEC3',
     });
     const accIdx = gltf.accessors.length;
     gltf.accessors.push({
-      bufferView: bvIdx,
-      byteOffset: 0,
-      componentType: 5125,
-      count: mesh.indices.length,
-      type: 'SCALAR'
+      bufferView: bvIdx, byteOffset: 0, componentType: 5125,
+      count: mesh.indices.length, type: 'SCALAR',
     });
 
     const c = mesh.color || { x: 0.7, y: 0.7, z: 0.7, w: 1.0 };
@@ -184,7 +167,7 @@ function buildGltfFromMeshes(meshes) {
       primitives: [{
         attributes: { POSITION: accPos, NORMAL: accNorm },
         indices: accIdx,
-        material: matIdx
+        material: matIdx,
       }],
     });
 
@@ -193,6 +176,7 @@ function buildGltfFromMeshes(meshes) {
   }
 
   const allData = Buffer.concat(chunks);
+  // Dados embutidos: sem arquivo .bin externo, zero problemas no proxy
   gltf.buffers.push({
     byteLength: allData.length,
     uri: 'data:application/octet-stream;base64,' + allData.toString('base64'),
@@ -202,165 +186,64 @@ function buildGltfFromMeshes(meshes) {
 }
 
 /**
- * Converte GLTF + BIN externo para GLB autocontido
- * Usa @gltf-transform para juntar tudo em um único arquivo
+ * Converte GLTF + BIN externo para GLB autocontido (método manual, sem ESM).
+ * Suporta também texturas externas via textureBuffers map.
  */
 async function gltfBinToGlb(gltfBuffer, binBuffer, textureBuffers = {}) {
-  try {
-    // Importa o gltf-transform dinamicamente (es module)
-    const { NodeIO } = await import('@gltf-transform/core');
-    const { ALL_EXTENSIONS } = await import('@gltf-transform/extensions');
-
-    // Cria um IO para ler o GLTF
-    const io = new NodeIO()
-      .registerExtensions(ALL_EXTENSIONS);
-
-    // Faz o parse do GLTF
-    const document = await io.readBinary(gltfBuffer);
-
-    // Atualiza os buffers do documento com os dados reais
-    // O documento pode ter referências externas, precisamos injetar os dados
-    const root = document.getRoot();
-    const buffers = root.listBuffers();
-
-    // Se já tem buffer embutido, usa ele
-    if (buffers.length > 0) {
-      const existingBuffer = buffers[0];
-      // Se o buffer estiver vazio ou for referência externa, atualiza com os dados do .bin
-      if (existingBuffer.getByteLength() === 0 && binBuffer) {
-        existingBuffer.setByteLength(binBuffer.length);
-        const uri = existingBuffer.getURI();
-        if (uri && !uri.startsWith('data:')) {
-          // Substitui o buffer externo pelo dado real
-          // O NodeIO não permite setar o conteúdo diretamente, então recriamos
-          // Solução alternativa: criar um novo documento com os dados inline
-          return await gltfToGlbInline(gltfBuffer, binBuffer, textureBuffers);
-        }
-      }
-    } else if (binBuffer) {
-      // Sem buffer definido, cria um novo
-      const buffer = document.createBuffer(binBuffer);
-      buffer.setByteLength(binBuffer.length);
-      // Atualiza todas as bufferViews para apontar para o novo buffer
-      const bufferViews = root.listBufferViews();
-      for (const bv of bufferViews) {
-        bv.setBuffer(buffer);
-      }
-    }
-
-    // Converte para GLB
-    const glbBuffer = await io.writeBinary(document);
-    return glbBuffer;
-  } catch (err) {
-    console.error('[converter] Erro no gltf-transform:', err.message);
-    // Fallback: tenta o método manual
-    return await gltfToGlbManual(gltfBuffer, binBuffer);
-  }
-}
-
-/**
- * Método manual para converter GLTF+BIN em GLB
- * (fallback quando @gltf-transform falha)
- */
-async function gltfToGlbManual(gltfBuffer, binBuffer) {
+  console.log('[converter] Convertendo GLTF+BIN → GLB (método manual)...');
   const json = JSON.parse(gltfBuffer.toString('utf8'));
 
-  // Verifica se tem buffer externo
-  if (json.buffers && json.buffers.length > 0) {
-    const buffer = json.buffers[0];
-    if (buffer.uri && !buffer.uri.startsWith('data:')) {
-      // Substitui a referência externa por dados embutidos
-      buffer.uri = 'data:application/octet-stream;base64,' + binBuffer.toString('base64');
-    }
-  } else if (binBuffer) {
-    // Adiciona buffer se não existir
-    json.buffers = [{
-      byteLength: binBuffer.length,
-      uri: 'data:application/octet-stream;base64,' + binBuffer.toString('base64')
-    }];
-  }
-
-  // Converte para GLB: JSON + binário
-  const jsonStr = JSON.stringify(json);
-  const jsonBuffer = Buffer.from(jsonStr);
-
-  // Formato GLB: cabeçalho + JSON chunk + Binary chunk
-  // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#binary-file-format
-  const header = Buffer.alloc(12);
-  header.writeUInt32LE(0x46546C67, 0); // magic 'glTF'
-  header.writeUInt32LE(2, 4); // version
-  header.writeUInt32LE(header.length + jsonBuffer.length + 8 + (binBuffer ? binBuffer.length + 8 : 0), 8); // total length
-
-  const jsonChunkHeader = Buffer.alloc(8);
-  jsonChunkHeader.writeUInt32LE(jsonBuffer.length, 0);
-  jsonChunkHeader.writeUInt32LE(0x4E4F534A, 4); // 'JSON'
-
-  let result = Buffer.concat([header, jsonChunkHeader, jsonBuffer]);
-
-  if (binBuffer) {
-    const binChunkHeader = Buffer.alloc(8);
-    binChunkHeader.writeUInt32LE(binBuffer.length, 0);
-    binChunkHeader.writeUInt32LE(0x004E4942, 4); // 'BIN\x00'
-    result = Buffer.concat([result, binChunkHeader, binBuffer]);
-  }
-
-  return result;
-}
-
-/**
- * Converte GLTF para GLB inline (alternativa)
- */
-async function gltfToGlbInline(gltfBuffer, binBuffer, textureBuffers) {
-  const json = JSON.parse(gltfBuffer.toString('utf8'));
-
-  // Substitui buffers externos por data URIs
+  // Substitui buffers externos (.bin) por data URI
   if (json.buffers) {
     for (const buffer of json.buffers) {
       if (buffer.uri && !buffer.uri.startsWith('data:')) {
-        const fileName = buffer.uri;
-        if (fileName.endsWith('.bin') && binBuffer) {
+        const fname = path.basename(buffer.uri);
+        if (fname.toLowerCase().endsWith('.bin') && binBuffer) {
           buffer.uri = 'data:application/octet-stream;base64,' + binBuffer.toString('base64');
-        } else if (textureBuffers[fileName]) {
-          const ext = fileName.split('.').pop().toLowerCase();
-          const mimeType = ext === 'png' ? 'image/png' :
-                          ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
-                          ext === 'webp' ? 'image/webp' : 'image/' + ext;
-          buffer.uri = 'data:' + mimeType + ';base64,' + textureBuffers[fileName].toString('base64');
+          console.log(`[converter] Buffer substituído: ${fname}`);
         }
       }
     }
   }
 
-  // Atualiza imagens para data URIs
+  // Substitui imagens externas por data URI
   if (json.images) {
     for (const img of json.images) {
       if (img.uri && !img.uri.startsWith('data:')) {
-        const fileName = img.uri;
-        if (textureBuffers[fileName]) {
-          const ext = fileName.split('.').pop().toLowerCase();
-          const mimeType = ext === 'png' ? 'image/png' :
-                          ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
-                          ext === 'webp' ? 'image/webp' : 'image/' + ext;
-          img.uri = 'data:' + mimeType + ';base64,' + textureBuffers[fileName].toString('base64');
+        const fname = path.basename(img.uri);
+        const texBuf = textureBuffers[fname] || textureBuffers[img.uri];
+        if (texBuf) {
+          const ext = fname.split('.').pop().toLowerCase();
+          const mimeType = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[ext] || 'image/' + ext;
+          img.uri = `data:${mimeType};base64,` + texBuf.toString('base64');
+          console.log(`[converter] Textura embutida: ${fname}`);
         }
       }
     }
   }
 
-  // Agora constrói o GLB
-  const jsonStr = JSON.stringify(json);
-  const jsonBuffer = Buffer.from(jsonStr);
+  // Serializa JSON (alinhado a 4 bytes como exige o spec GLB)
+  const jsonStr    = JSON.stringify(json);
+  const jsonPad    = (4 - (jsonStr.length % 4)) % 4;
+  const jsonBytes  = Buffer.from(jsonStr + ' '.repeat(jsonPad));
+
+  // Chunk BIN (opcional — já embutimos via data URI, mas pode ter bin nativo)
+  // Se todo o binário já foi embutido, o GLB não precisa do chunk BIN.
+  const totalLen = 12 + 8 + jsonBytes.length;
 
   const header = Buffer.alloc(12);
-  header.writeUInt32LE(0x46546C67, 0);
-  header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(header.length + jsonBuffer.length + 8, 8);
+  header.writeUInt32LE(0x46546C67, 0); // 'glTF'
+  header.writeUInt32LE(2, 4);           // version
+  header.writeUInt32LE(totalLen, 8);    // total length
 
   const jsonChunkHeader = Buffer.alloc(8);
-  jsonChunkHeader.writeUInt32LE(jsonBuffer.length, 0);
-  jsonChunkHeader.writeUInt32LE(0x4E4F534A, 4);
+  jsonChunkHeader.writeUInt32LE(jsonBytes.length, 0);
+  jsonChunkHeader.writeUInt32LE(0x4E4F534A, 4); // 'JSON'
 
-  return Buffer.concat([header, jsonChunkHeader, jsonBuffer]);
+  return Buffer.concat([header, jsonChunkHeader, jsonBytes]);
 }
+
+// path é necessário para path.basename em gltfBinToGlb
+const path = require('path');
 
 module.exports = { ifcToGltf, gltfBinToGlb };
