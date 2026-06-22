@@ -1,3 +1,4 @@
+// src/routes/projects.js
 const express = require('express');
 const multer = require('multer');
 const { getDb, saveDb } = require('../services/db');
@@ -8,7 +9,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+  limits: { fileSize: 500 * 1024 * 1024 },
 });
 
 const auth = require('../middleware/auth');
@@ -66,7 +67,7 @@ router.get('/job/:jobId', auth, async (req, res) => {
   }
 });
 
-// Buscar projeto pelo slug (público — usado pelo viewer)
+// Buscar projeto pelo slug
 router.get('/:slug', async (req, res) => {
   try {
     const db = await getDb();
@@ -85,65 +86,103 @@ router.get('/:slug', async (req, res) => {
   }
 });
 
-// Criar projeto (upload)
-router.post('/', auth, upload.single('file'), async (req, res) => {
+// Criar projeto (upload com suporte a múltiplos arquivos)
+router.post('/', auth, upload.array('files', 20), async (req, res) => {
   try {
     const { name, description } = req.body;
-    const file = req.file;
+    const files = req.files;
 
     if (!name) return res.status(400).json({ error: 'Nome é obrigatório' });
-    if (!file) return res.status(400).json({ error: 'Arquivo é obrigatório' });
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'Pelo menos um arquivo é obrigatório' });
+    }
 
     const slug = crypto.randomBytes(4).toString('hex');
-    const ext  = file.originalname.split('.').pop().toLowerCase();
-    const allowed = ['ifc', 'gltf', 'glb', 'obj', 'fbx'];
-
-    if (!allowed.includes(ext)) {
-      return res.status(400).json({ error: `Formato .${ext} não suportado. Use: IFC, GLB, GLTF, OBJ ou FBX.` });
-    }
-
-    // ── GLTF separado: verifica se tem referência a .bin externo ─────────────
-    // GLTF autocontido (com uri data:) funciona. GLTF com .bin separado não.
-    if (ext === 'gltf') {
-      const text = file.buffer.toString('utf8', 0, Math.min(file.buffer.length, 4096));
-      // Se tem "uri" apontando para arquivo externo (não data:), rejeita
-      const hasExternalBin = /"uri"\s*:\s*"(?!data:)[^"]+\.bin"/i.test(text);
-      if (hasExternalBin) {
-        return res.status(400).json({
-          error: 'Este arquivo GLTF depende de um arquivo .bin externo. Exporte como GLB (arquivo único) para fazer o upload.',
-        });
-      }
-    }
-
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
+    // ── Verifica se é um conjunto GLTF + BIN ──────────────────────────────────
+    const gltfFile = files.find(f => f.originalname.toLowerCase().endsWith('.gltf'));
+    const binFile = files.find(f => f.originalname.toLowerCase().endsWith('.bin'));
+    const textureFiles = files.filter(f => {
+      const ext = f.originalname.toLowerCase().split('.').pop();
+      return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'tga', 'bmp'].includes(ext);
+    });
+
+    // ── Se tem GLTF + BIN, converte para GLB ─────────────────────────────────
+    if (gltfFile && binFile) {
+      const jobId = crypto.randomBytes(6).toString('hex');
+      await createJob(jobId);
+
+      res.status(202).json({ jobId, converting: true });
+
+      setImmediate(async () => {
+        try {
+          console.log(`[job:${jobId}] Convertendo GLTF+BIN para GLB...`);
+          const { gltfBinToGlb } = require('../services/converter');
+
+          // Prepara buffers de textura
+          const textureBuffers = {};
+          for (const tex of textureFiles) {
+            textureBuffers[tex.originalname] = tex.buffer;
+          }
+
+          const glbBuffer = await gltfBinToGlb(
+            gltfFile.buffer,
+            binFile.buffer,
+            textureBuffers
+          );
+
+          const fileName = `${slug}.glb`;
+          const fileKey = await uploadFile(glbBuffer, fileName, 'model/gltf-binary');
+
+          const viewerUrl = `${baseUrl}/v/${slug}`;
+          const qrUrl = await QRCode.toDataURL(viewerUrl);
+
+          const db = await getDb();
+          db.run(
+            `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [slug, name, description, gltfFile.originalname, glbBuffer.length, 'glb', fileKey, qrUrl]
+          );
+          saveDb();
+          await updateJob(jobId, { status: 'done', slug, viewer_url: viewerUrl, qr_url: qrUrl });
+          console.log(`[job:${jobId}] GLB criado: /v/${slug}`);
+        } catch (err) {
+          console.error(`[job:${jobId}] Erro:`, err.message);
+          await updateJob(jobId, { status: 'error', error: err.message });
+        }
+      });
+
+      return;
+    }
+
     // ── IFC → conversão assíncrona ────────────────────────────────────────────
+    const mainFile = files[0];
+    const ext = mainFile.originalname.split('.').pop().toLowerCase();
+
     if (ext === 'ifc') {
       const jobId = crypto.randomBytes(6).toString('hex');
       await createJob(jobId);
 
       res.status(202).json({ jobId, converting: true });
 
-      const fileBuffer  = file.buffer;
-      const originalName = file.originalname;
-
       setImmediate(async () => {
         try {
-          console.log(`[job:${jobId}] Iniciando conversão IFC: ${originalName} (${(fileBuffer.length/1024/1024).toFixed(1)} MB)`);
+          console.log(`[job:${jobId}] Convertendo IFC para GLTF...`);
           const { ifcToGltf } = require('../services/converter');
-          const gltfBuffer = await ifcToGltf(fileBuffer);
-          const fileName   = `${slug}.gltf`;
-          console.log(`[job:${jobId}] Conversão OK: ${(gltfBuffer.length/1024/1024).toFixed(1)} MB`);
+          const gltfBuffer = await ifcToGltf(mainFile.buffer);
 
-          const fileKey   = await uploadFile(gltfBuffer, fileName, 'model/gltf+json');
+          const fileName = `${slug}.gltf`;
+          const fileKey = await uploadFile(gltfBuffer, fileName, 'model/gltf+json');
+
           const viewerUrl = `${baseUrl}/v/${slug}`;
-          const qrUrl     = await QRCode.toDataURL(viewerUrl);
+          const qrUrl = await QRCode.toDataURL(viewerUrl);
 
           const db = await getDb();
           db.run(
             `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [slug, name, description, originalName, gltfBuffer.length, 'gltf', fileKey, qrUrl],
+            [slug, name, description, mainFile.originalname, gltfBuffer.length, 'gltf', fileKey, qrUrl]
           );
           saveDb();
           await updateJob(jobId, { status: 'done', slug, viewer_url: viewerUrl, qr_url: qrUrl });
@@ -157,25 +196,43 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       return;
     }
 
-    // ── GLB, GLTF autocontido, OBJ, FBX → sobe direto ───────────────────────
+    // ── GLB, GLTF (autocontido), OBJ, FBX → sobe direto ──────────────────────
+    const allowedExts = ['glb', 'gltf', 'obj', 'fbx'];
+    if (!allowedExts.includes(ext)) {
+      return res.status(400).json({
+        error: `Formato .${ext} não suportado. Use: GLB, GLTF (autocontido), IFC, OBJ ou FBX.`
+      });
+    }
+
+    // Verifica se GLTF é autocontido (não tem referência a .bin externo)
+    if (ext === 'gltf') {
+      const text = mainFile.buffer.toString('utf8', 0, Math.min(mainFile.buffer.length, 4096));
+      const hasExternalBin = /"uri"\s*:\s*"(?!data:)[^"]+\.bin"/i.test(text);
+      if (hasExternalBin) {
+        return res.status(400).json({
+          error: 'Este GLTF depende de arquivo .bin externo. Faça upload selecionando o .gltf e .bin juntos.',
+        });
+      }
+    }
+
     const mimeMap = {
       gltf: 'model/gltf+json',
-      glb:  'model/gltf-binary',
-      obj:  'text/plain',
-      fbx:  'application/octet-stream',
+      glb: 'model/gltf-binary',
+      obj: 'text/plain',
+      fbx: 'application/octet-stream',
     };
 
     const fileName = `${slug}.${ext}`;
-    const fileKey  = await uploadFile(file.buffer, fileName, mimeMap[ext] || 'application/octet-stream');
+    const fileKey = await uploadFile(mainFile.buffer, fileName, mimeMap[ext] || 'application/octet-stream');
 
     const viewerUrl = `${baseUrl}/v/${slug}`;
-    const qrUrl     = await QRCode.toDataURL(viewerUrl);
+    const qrUrl = await QRCode.toDataURL(viewerUrl);
 
     const db = await getDb();
     db.run(
       `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [slug, name, description, file.originalname, file.buffer.length, ext, fileKey, qrUrl],
+      [slug, name, description, mainFile.originalname, mainFile.buffer.length, ext, fileKey, qrUrl]
     );
     saveDb();
 
