@@ -10,12 +10,10 @@ let SQL = null;
 async function getDb() {
   if (db) return db;
 
-  // Carrega SQL.js
   SQL = await initSqlJs({
     locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm')
   });
 
-  // Cria ou carrega o banco
   let dbData = null;
   if (fs.existsSync(DB_PATH)) {
     dbData = fs.readFileSync(DB_PATH);
@@ -23,7 +21,6 @@ async function getDb() {
 
   db = new SQL.Database(dbData);
 
-  // Cria as tabelas se não existirem
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,9 +40,18 @@ async function getDb() {
       qr_url TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS conversion_jobs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'processing',
+      slug TEXT,
+      viewer_url TEXT,
+      qr_url TEXT,
+      error TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
-  // Cria usuário admin se não existir
   const bcrypt = require('bcryptjs');
   const adminExists = db.exec('SELECT * FROM users WHERE username = "admin"');
   if (adminExists.length === 0 || adminExists[0].values.length === 0) {
