@@ -1,4 +1,4 @@
-# PerfecAire Viewer 3D
+# perfect aire Viewer 3D
 
 Visualizador 3D para modelos **IFC, GLB, GLTF+BIN, OBJ e FBX** — com painel admin, upload, QR Code e armazenamento na nuvem (Cloudflare R2).
 
