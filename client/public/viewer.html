@@ -211,7 +211,10 @@
         document.title = project.name + ' — PerfecAire';
         document.getElementById('project-name').textContent = project.name;
         if (project.description) document.getElementById('project-desc').textContent = project.description;
-        await loadModel('/api/proxy/' + project.slug, project.file_type);
+        // A barra final é essencial: o GLTFLoader resolve caminhos relativos (.bin, texturas)
+        // em relação à URL do arquivo principal. Com a barra, "/api/proxy/SLUG/3dExport.bin"
+        // é resolvido corretamente pela rota auxiliar do proxy.
+        await loadModel('/api/proxy/' + project.slug + '/', project.file_type);
       } catch (err) {
         setStatus(err.message, true);
       }
