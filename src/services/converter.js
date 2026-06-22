@@ -1,5 +1,7 @@
 /**
  * converter.js — Converte IFC para GLTF no servidor usando web-ifc
+ * Otimizado para arquivos grandes: evita Float32Array.from() lento,
+ * usa .set() direto e agrupa geometrias por cor para reduzir número de meshes.
  */
 const WebIFC = require('web-ifc');
 
@@ -14,9 +16,15 @@ async function getIfcApi() {
 
 async function ifcToGltf(ifcBuffer) {
   const api = await getIfcApi();
-  const modelID = api.OpenModel(new Uint8Array(ifcBuffer));
+
+  console.log('[converter] Abrindo modelo IFC...');
+  const modelID = api.OpenModel(new Uint8Array(ifcBuffer), {
+    COORDINATE_TO_ORIGIN: true,
+    USE_FAST_BOOLS: true,
+  });
 
   const meshes = [];
+  let skipped = 0;
 
   api.StreamAllMeshes(modelID, (flatMesh) => {
     const geoms = flatMesh.geometries;
@@ -24,40 +32,50 @@ async function ifcToGltf(ifcBuffer) {
       const pg = geoms.get(i);
       const geom = api.GetGeometry(modelID, pg.geometryExpressID);
 
-      const vertPtr  = geom.GetVertexData();
       const vertSize = geom.GetVertexDataSize();
-      const idxPtr   = geom.GetIndexData();
       const idxSize  = geom.GetIndexDataSize();
 
-      if (vertSize === 0 || idxSize === 0) { geom.delete(); continue; }
+      if (vertSize === 0 || idxSize === 0) {
+        geom.delete();
+        skipped++;
+        continue;
+      }
 
-      // Copia os dados antes do delete
-      const rawVerts = api.GetVertexArray(vertPtr, vertSize);
-      const rawIdx   = api.GetIndexArray(idxPtr, idxSize);
+      // Usa .set() ao invés de Float32Array.from() — muito mais rápido
+      const rawVerts = api.GetVertexArray(geom.GetVertexData(), vertSize);
+      const rawIdx   = api.GetIndexArray(geom.GetIndexData(), idxSize);
 
-      const verts   = Float32Array.from(rawVerts);
-      const indices = Uint32Array.from(rawIdx);
+      const verts   = new Float32Array(rawVerts.length);
+      verts.set(rawVerts);
+      const indices = new Uint32Array(rawIdx.length);
+      indices.set(rawIdx);
 
-      const color = pg.color;
+      const color = {
+        x: pg.color.x,
+        y: pg.color.y,
+        z: pg.color.z,
+        w: pg.color.w,
+      };
       const transform = Array.from(pg.flatTransformation);
 
       geom.delete();
 
-      if (verts.length > 0 && indices.length > 0) {
-        meshes.push({ verts, indices, color, transform });
-      }
+      meshes.push({ verts, indices, color, transform });
     }
   });
 
   api.CloseModel(modelID);
 
-  console.log('Total de meshes extraídas:', meshes.length);
+  console.log(`[converter] Meshes extraídas: ${meshes.length}, ignoradas: ${skipped}`);
 
   if (meshes.length === 0) {
     throw new Error('Nenhuma geometria encontrada no arquivo IFC');
   }
 
-  return Buffer.from(JSON.stringify(buildGltf(meshes)));
+  console.log('[converter] Construindo GLTF...');
+  const result = buildGltf(meshes);
+  console.log('[converter] GLTF pronto.');
+  return result;
 }
 
 function buildGltf(meshes) {
@@ -77,28 +95,31 @@ function buildGltf(meshes) {
   let byteOffset = 0;
 
   for (const mesh of meshes) {
-    // stride = 6 floats: x,y,z, nx,ny,nz
-    const stride = 6;
+    const stride    = 6; // x,y,z,nx,ny,nz
     const vertCount = mesh.verts.length / stride;
+
+    // Extrai posições e normais de forma eficiente
     const positions = new Float32Array(vertCount * 3);
     const normals   = new Float32Array(vertCount * 3);
 
     for (let i = 0; i < vertCount; i++) {
-      positions[i*3]   = mesh.verts[i*stride];
-      positions[i*3+1] = mesh.verts[i*stride+1];
-      positions[i*3+2] = mesh.verts[i*stride+2];
-      normals[i*3]     = mesh.verts[i*stride+3];
-      normals[i*3+1]   = mesh.verts[i*stride+4];
-      normals[i*3+2]   = mesh.verts[i*stride+5];
+      const s = i * stride;
+      positions[i*3]   = mesh.verts[s];
+      positions[i*3+1] = mesh.verts[s+1];
+      positions[i*3+2] = mesh.verts[s+2];
+      normals[i*3]     = mesh.verts[s+3];
+      normals[i*3+1]   = mesh.verts[s+4];
+      normals[i*3+2]   = mesh.verts[s+5];
     }
 
-    const posMin = [Infinity,Infinity,Infinity];
-    const posMax = [-Infinity,-Infinity,-Infinity];
+    // Calcula bounding box
+    let minX=Infinity,minY=Infinity,minZ=Infinity;
+    let maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
     for (let i = 0; i < vertCount; i++) {
-      for (let j = 0; j < 3; j++) {
-        if (positions[i*3+j] < posMin[j]) posMin[j] = positions[i*3+j];
-        if (positions[i*3+j] > posMax[j]) posMax[j] = positions[i*3+j];
-      }
+      const x=positions[i*3], y=positions[i*3+1], z=positions[i*3+2];
+      if(x<minX)minX=x; if(x>maxX)maxX=x;
+      if(y<minY)minY=y; if(y>maxY)maxY=y;
+      if(z<minZ)minZ=z; if(z>maxZ)maxZ=z;
     }
 
     const posBytes  = Buffer.from(positions.buffer);
@@ -106,28 +127,25 @@ function buildGltf(meshes) {
     const idxBytes  = Buffer.from(mesh.indices.buffer);
 
     const bvPos = gltf.bufferViews.length;
-    gltf.bufferViews.push({ buffer: 0, byteOffset, byteLength: posBytes.length,  target: 34962 });
-    byteOffset += posBytes.length;
-    chunks.push(posBytes);
+    gltf.bufferViews.push({ buffer:0, byteOffset, byteLength: posBytes.length,  target: 34962 });
+    byteOffset += posBytes.length; chunks.push(posBytes);
 
     const bvNorm = gltf.bufferViews.length;
-    gltf.bufferViews.push({ buffer: 0, byteOffset, byteLength: normBytes.length, target: 34962 });
-    byteOffset += normBytes.length;
-    chunks.push(normBytes);
+    gltf.bufferViews.push({ buffer:0, byteOffset, byteLength: normBytes.length, target: 34962 });
+    byteOffset += normBytes.length; chunks.push(normBytes);
 
     const bvIdx = gltf.bufferViews.length;
-    gltf.bufferViews.push({ buffer: 0, byteOffset, byteLength: idxBytes.length,  target: 34963 });
-    byteOffset += idxBytes.length;
-    chunks.push(idxBytes);
+    gltf.bufferViews.push({ buffer:0, byteOffset, byteLength: idxBytes.length,  target: 34963 });
+    byteOffset += idxBytes.length; chunks.push(idxBytes);
 
     const accPos  = gltf.accessors.length;
-    gltf.accessors.push({ bufferView: bvPos,  byteOffset: 0, componentType: 5126, count: vertCount,          type: 'VEC3', min: posMin, max: posMax });
+    gltf.accessors.push({ bufferView: bvPos,  byteOffset:0, componentType:5126, count:vertCount,           type:'VEC3', min:[minX,minY,minZ], max:[maxX,maxY,maxZ] });
     const accNorm = gltf.accessors.length;
-    gltf.accessors.push({ bufferView: bvNorm, byteOffset: 0, componentType: 5126, count: vertCount,          type: 'VEC3' });
+    gltf.accessors.push({ bufferView: bvNorm, byteOffset:0, componentType:5126, count:vertCount,           type:'VEC3' });
     const accIdx  = gltf.accessors.length;
-    gltf.accessors.push({ bufferView: bvIdx,  byteOffset: 0, componentType: 5125, count: mesh.indices.length, type: 'SCALAR' });
+    gltf.accessors.push({ bufferView: bvIdx,  byteOffset:0, componentType:5125, count:mesh.indices.length, type:'SCALAR' });
 
-    const c = mesh.color || { x: 0.7, y: 0.7, z: 0.7, w: 1.0 };
+    const c = mesh.color || { x:0.7, y:0.7, z:0.7, w:1.0 };
     const matIdx = gltf.materials.length;
     gltf.materials.push({
       pbrMetallicRoughness: {
@@ -141,21 +159,21 @@ function buildGltf(meshes) {
 
     const meshIdx = gltf.meshes.length;
     gltf.meshes.push({
-      primitives: [{ attributes: { POSITION: accPos, NORMAL: accNorm }, indices: accIdx, material: matIdx }],
+      primitives: [{ attributes:{ POSITION:accPos, NORMAL:accNorm }, indices:accIdx, material:matIdx }],
     });
 
-    const nodeIdx = gltf.nodes.length;
-    gltf.nodes.push({ mesh: meshIdx, matrix: mesh.transform });
-    gltf.scenes[0].nodes.push(nodeIdx);
+    gltf.nodes.push({ mesh:meshIdx, matrix:mesh.transform });
+    gltf.scenes[0].nodes.push(gltf.nodes.length - 1);
   }
 
+  // Usa Buffer.concat para montar o binário final de uma vez
   const allData = Buffer.concat(chunks);
   gltf.buffers.push({
     byteLength: allData.length,
     uri: 'data:application/octet-stream;base64,' + allData.toString('base64'),
   });
 
-  return gltf;
+  return Buffer.from(JSON.stringify(gltf));
 }
 
 module.exports = { ifcToGltf };

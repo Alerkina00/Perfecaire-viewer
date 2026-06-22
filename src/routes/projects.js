@@ -8,12 +8,12 @@ const crypto = require('crypto');
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 }
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
 });
 
 const auth = require('../middleware/auth');
 
-// ─── helpers de job (persistidos no SQLite) ──────────────────────────────────
+// ─── helpers de job ───────────────────────────────────────────────────────────
 
 async function createJob(jobId) {
   const db = await getDb();
@@ -37,7 +37,7 @@ async function getJob(jobId) {
   return { id, status, slug, viewerUrl: viewer_url, qrUrl: qr_url, error };
 }
 
-// ─── Rotas ───────────────────────────────────────────────────────────────────
+// ─── Rotas ────────────────────────────────────────────────────────────────────
 
 // Listar projetos
 router.get('/', auth, async (req, res) => {
@@ -47,7 +47,7 @@ router.get('/', auth, async (req, res) => {
     const projects = result.length > 0 ? result[0].values.map(row => ({
       id: row[0], slug: row[1], name: row[2], description: row[3],
       file_name: row[4], file_size: row[5], file_type: row[6],
-      file_key: row[7], qr_url: row[8], created_at: row[9]
+      file_key: row[7], qr_url: row[8], created_at: row[9],
     })) : [];
     res.json(projects);
   } catch (err) {
@@ -55,7 +55,7 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// Status de um job de conversão (persiste no SQLite — sobrevive a reinicializações)
+// Status de job de conversão
 router.get('/job/:jobId', auth, async (req, res) => {
   try {
     const job = await getJob(req.params.jobId);
@@ -66,7 +66,7 @@ router.get('/job/:jobId', auth, async (req, res) => {
   }
 });
 
-// Buscar projeto pelo slug
+// Buscar projeto pelo slug (público — usado pelo viewer)
 router.get('/:slug', async (req, res) => {
   try {
     const db = await getDb();
@@ -78,14 +78,14 @@ router.get('/:slug', async (req, res) => {
     res.json({
       id: row[0], slug: row[1], name: row[2], description: row[3],
       file_name: row[4], file_size: row[5], file_type: row[6],
-      file_key: row[7], qr_url: row[8], created_at: row[9]
+      file_key: row[7], qr_url: row[8], created_at: row[9],
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Criar projeto
+// Criar projeto (upload)
 router.post('/', auth, upload.single('file'), async (req, res) => {
   try {
     const { name, description } = req.body;
@@ -95,47 +95,61 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
     if (!file) return res.status(400).json({ error: 'Arquivo é obrigatório' });
 
     const slug = crypto.randomBytes(4).toString('hex');
-    const ext = file.originalname.split('.').pop().toLowerCase();
+    const ext  = file.originalname.split('.').pop().toLowerCase();
     const allowed = ['ifc', 'gltf', 'glb', 'obj', 'fbx'];
+
     if (!allowed.includes(ext)) {
-      return res.status(400).json({ error: `Formato .${ext} não suportado` });
+      return res.status(400).json({ error: `Formato .${ext} não suportado. Use: IFC, GLB, GLTF, OBJ ou FBX.` });
     }
 
-    // IFC → conversão assíncrona, status salvo no banco
+    // ── GLTF separado: verifica se tem referência a .bin externo ─────────────
+    // GLTF autocontido (com uri data:) funciona. GLTF com .bin separado não.
+    if (ext === 'gltf') {
+      const text = file.buffer.toString('utf8', 0, Math.min(file.buffer.length, 4096));
+      // Se tem "uri" apontando para arquivo externo (não data:), rejeita
+      const hasExternalBin = /"uri"\s*:\s*"(?!data:)[^"]+\.bin"/i.test(text);
+      if (hasExternalBin) {
+        return res.status(400).json({
+          error: 'Este arquivo GLTF depende de um arquivo .bin externo. Exporte como GLB (arquivo único) para fazer o upload.',
+        });
+      }
+    }
+
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+
+    // ── IFC → conversão assíncrona ────────────────────────────────────────────
     if (ext === 'ifc') {
       const jobId = crypto.randomBytes(6).toString('hex');
       await createJob(jobId);
 
-      // Responde imediatamente
       res.status(202).json({ jobId, converting: true });
 
-      // Processa em background
-      const fileBuffer = file.buffer;
+      const fileBuffer  = file.buffer;
       const originalName = file.originalname;
-      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
       setImmediate(async () => {
         try {
-          console.log(`[job:${jobId}] Convertendo IFC: ${originalName}`);
+          console.log(`[job:${jobId}] Iniciando conversão IFC: ${originalName} (${(fileBuffer.length/1024/1024).toFixed(1)} MB)`);
           const { ifcToGltf } = require('../services/converter');
           const gltfBuffer = await ifcToGltf(fileBuffer);
-          const fileName = `${slug}.gltf`;
-          console.log(`[job:${jobId}] Conversão concluída: ${gltfBuffer.length} bytes`);
+          const fileName   = `${slug}.gltf`;
+          console.log(`[job:${jobId}] Conversão OK: ${(gltfBuffer.length/1024/1024).toFixed(1)} MB`);
 
-          const fileKey = await uploadFile(gltfBuffer, fileName, 'model/gltf+json');
+          const fileKey   = await uploadFile(gltfBuffer, fileName, 'model/gltf+json');
           const viewerUrl = `${baseUrl}/v/${slug}`;
-          const qrUrl = await QRCode.toDataURL(viewerUrl);
+          const qrUrl     = await QRCode.toDataURL(viewerUrl);
 
           const db = await getDb();
           db.run(
             `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [slug, name, description, originalName, gltfBuffer.length, 'gltf', fileKey, qrUrl]
+            [slug, name, description, originalName, gltfBuffer.length, 'gltf', fileKey, qrUrl],
           );
+          saveDb();
           await updateJob(jobId, { status: 'done', slug, viewer_url: viewerUrl, qr_url: qrUrl });
-          console.log(`[job:${jobId}] Projeto criado: ${slug}`);
+          console.log(`[job:${jobId}] Projeto criado: /v/${slug}`);
         } catch (err) {
-          console.error(`[job:${jobId}] Erro na conversão:`, err.message);
+          console.error(`[job:${jobId}] Erro:`, err.message);
           await updateJob(jobId, { status: 'error', error: err.message });
         }
       });
@@ -143,25 +157,25 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       return;
     }
 
-    // Outros formatos — sobe direto
+    // ── GLB, GLTF autocontido, OBJ, FBX → sobe direto ───────────────────────
     const mimeMap = {
       gltf: 'model/gltf+json',
-      glb: 'model/gltf-binary',
-      obj: 'text/plain',
-      fbx: 'application/octet-stream',
+      glb:  'model/gltf-binary',
+      obj:  'text/plain',
+      fbx:  'application/octet-stream',
     };
-    const fileName = `${slug}.${ext}`;
-    const fileKey = await uploadFile(file.buffer, fileName, mimeMap[ext] || 'application/octet-stream');
 
-    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const fileName = `${slug}.${ext}`;
+    const fileKey  = await uploadFile(file.buffer, fileName, mimeMap[ext] || 'application/octet-stream');
+
     const viewerUrl = `${baseUrl}/v/${slug}`;
-    const qrUrl = await QRCode.toDataURL(viewerUrl);
+    const qrUrl     = await QRCode.toDataURL(viewerUrl);
 
     const db = await getDb();
     db.run(
       `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [slug, name, description, file.originalname, file.buffer.length, ext, fileKey, qrUrl]
+      [slug, name, description, file.originalname, file.buffer.length, ext, fileKey, qrUrl],
     );
     saveDb();
 
@@ -169,8 +183,9 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       id: db.exec('SELECT last_insert_rowid()')[0].values[0][0],
       slug, viewerUrl, qrUrl,
     });
+
   } catch (err) {
-    console.error(err);
+    console.error('[projects] Erro no upload:', err);
     res.status(500).json({ error: err.message });
   }
 });
