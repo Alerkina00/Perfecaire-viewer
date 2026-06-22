@@ -1,5 +1,5 @@
 /**
- * viewer.js — PerfecAire Viewer 3D
+ * viewer.js — perfect aire Viewer 3D
  *
  * ATENÇÃO: Este arquivo é mantido apenas como referência / fallback.
  * O viewer real funciona via <script type="module"> inline no viewer.html,
