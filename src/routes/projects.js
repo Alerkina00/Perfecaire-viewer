@@ -200,12 +200,12 @@ router.post('/', auth, upload.array('files', 20), async (req, res) => {
 
       setImmediate(async () => {
         try {
-          console.log(`[job:${jobId}] Convertendo IFC para GLTF...`);
-          const { ifcToGltf } = require('../services/converter');
-          const gltfBuffer = await ifcToGltf(mainFile.buffer);
+          console.log(`[job:${jobId}] Convertendo IFC para GLB...`);
+          const { ifcToGlb } = require('../services/converter');
+          const glbBuffer = await ifcToGlb(mainFile.buffer);
 
-          const fileName = `${slug}.gltf`;
-          const fileKey = await uploadFile(gltfBuffer, fileName, 'model/gltf+json');
+          const fileName = `${slug}.glb`;
+          const fileKey = await uploadFile(glbBuffer, fileName, 'model/gltf-binary');
 
           const viewerUrl = `${baseUrl}/v/${slug}`;
           const qrUrl = await QRCode.toDataURL(viewerUrl);
@@ -214,7 +214,7 @@ router.post('/', auth, upload.array('files', 20), async (req, res) => {
           db.run(
             `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [slug, name, description, mainFile.originalname, gltfBuffer.length, 'gltf', fileKey, qrUrl]
+            [slug, name, description, mainFile.originalname, glbBuffer.length, 'glb', fileKey, qrUrl]
           );
           saveDb();
           await updateJob(jobId, { status: 'done', slug, viewer_url: viewerUrl, qr_url: qrUrl });
