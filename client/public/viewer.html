@@ -8,6 +8,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1a1a2e; color: #e0e0f0; font-family: system-ui, sans-serif; overflow: hidden; }
     #viewer-canvas { display: block; width: 100vw; height: 100vh; }
+
     #header {
       position: fixed; top: 0; left: 0; right: 0;
       display: flex; align-items: center; gap: 12px;
@@ -18,6 +19,31 @@
     #logo-text { font-size: 13px; font-weight: 700; color: #6060cc; letter-spacing: 0.08em; text-transform: uppercase; }
     #project-name { font-size: 15px; font-weight: 600; color: #e0e0f0; }
     #project-desc { font-size: 12px; color: #8888aa; }
+
+    /* ── Loading overlay ── */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: #1a1a2e;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 18px; z-index: 100;
+      transition: opacity 0.4s;
+    }
+    #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+    #loading-logo { font-size: 18px; font-weight: 700; color: #6060cc; letter-spacing: 0.1em; }
+    #loading-label { font-size: 13px; color: #8888aa; min-height: 18px; }
+    #progress-track {
+      width: 240px; height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px; overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%; width: 0%; background: #6060cc;
+      border-radius: 2px; transition: width 0.15s ease;
+    }
+    #loading-size { font-size: 11px; color: #555577; }
+
+    /* ── Controles ── */
     #status {
       position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
       background: rgba(20,20,40,0.9); color: #aaaacc;
@@ -49,6 +75,15 @@
 </head>
 <body>
   <canvas id="viewer-canvas"></canvas>
+
+  <!-- Loading overlay com progresso real -->
+  <div id="loading-overlay">
+    <div id="loading-logo">PERFECAIRE</div>
+    <div id="progress-track"><div id="progress-bar"></div></div>
+    <div id="loading-label">Iniciando…</div>
+    <div id="loading-size"></div>
+  </div>
+
   <div id="header">
     <span id="logo-text">PerfecAire</span>
     <div>
@@ -60,9 +95,9 @@
   <div id="status"></div>
   <div id="info-toast"></div>
   <div id="controls">
-    <button class="ctrl-btn" id="btn-fit" title="Centralizar">⊙</button>
-    <button class="ctrl-btn" id="btn-grid" title="Grade">⊞</button>
-    <button class="ctrl-btn" id="btn-wire" title="Wireframe">⬡</button>
+    <button class="ctrl-btn" id="btn-fit"        title="Centralizar">⊙</button>
+    <button class="ctrl-btn" id="btn-grid"       title="Grade">⊞</button>
+    <button class="ctrl-btn" id="btn-wire"       title="Wireframe">⬡</button>
     <button class="ctrl-btn" id="btn-fullscreen" title="Tela cheia">⛶</button>
   </div>
 
@@ -79,12 +114,51 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader }   from 'three/addons/loaders/DRACOLoader.js';
     import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
     import { FBXLoader }     from 'three/addons/loaders/FBXLoader.js';
 
+    // ── UI helpers ────────────────────────────────────────────────────────────
+    const overlay     = document.getElementById('loading-overlay');
+    const progressBar = document.getElementById('progress-bar');
+    const loadingLabel = document.getElementById('loading-label');
+    const loadingSize  = document.getElementById('loading-size');
+
+    function setProgress(pct, label, bytes) {
+      progressBar.style.width = Math.min(100, pct) + '%';
+      if (label)  loadingLabel.textContent = label;
+      if (bytes)  loadingSize.textContent  = formatBytes(bytes);
+    }
+
+    function hideOverlay() {
+      overlay.classList.add('hidden');
+      setTimeout(() => { overlay.style.display = 'none'; }, 450);
+    }
+
+    function formatBytes(b) {
+      if (b > 1048576) return (b / 1048576).toFixed(1) + ' MB';
+      if (b > 1024)    return (b / 1024).toFixed(0) + ' KB';
+      return b + ' B';
+    }
+
+    function setStatus(msg, isError) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.style.display = msg ? 'block' : 'none';
+      el.style.color = isError ? '#ff6b6b' : '#aaaacc';
+    }
+
+    function showInfo(msg) {
+      const el = document.getElementById('info-toast');
+      el.textContent = msg;
+      el.style.opacity = '1';
+      setTimeout(() => { el.style.opacity = '0'; }, 3000);
+    }
+
+    // ── Three.js setup ────────────────────────────────────────────────────────
     const canvas = document.getElementById('viewer-canvas');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // limita DPR para performance
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -117,29 +191,63 @@
     grid.material.transparent = true;
     scene.add(grid);
 
-    function loadGLTF(url) {
-      return new Promise((resolve, reject) =>
-        new GLTFLoader().load(url, g => resolve(g.scene),
-          e => e.total && setStatus('Carregando… ' + Math.round(e.loaded/e.total*100) + '%'),
-          reject));
-    }
-    function loadOBJ(url) {
-      return new Promise((resolve, reject) => new OBJLoader().load(url, resolve, null, reject));
-    }
-    function loadFBX(url) {
-      return new Promise((resolve, reject) =>
-        new FBXLoader().load(url, fbx => { fbx.scale.setScalar(0.01); resolve(fbx); }, null, reject));
+    // ── DRACO loader (descompressão de geometria no browser) ─────────────────
+    // Se o modelo foi comprimido com Draco, isso acelera muito o download.
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/libs/draco/');
+
+    // ── Loaders ───────────────────────────────────────────────────────────────
+    function loadGLTF(url, slug) {
+      return new Promise((resolve, reject) => {
+        const loader = new GLTFLoader();
+        loader.setDRACOLoader(draco);
+
+        // Redireciona requisições de arquivos secundários (.bin, texturas)
+        // para /api/proxy/:slug/:filename em vez de tentar a URL original
+        loader.setResourcePath(`/api/proxy/${slug}/`);
+
+        loader.load(
+          url,
+          gltf => resolve(gltf.scene),
+          (event) => {
+            if (event.total) {
+              const pct = (event.loaded / event.total) * 100;
+              setProgress(pct, `Transferindo… ${Math.round(pct)}%`, event.loaded);
+            } else {
+              // Sem Content-Length: anima a barra de forma indeterminada
+              setProgress(50, `Transferindo… ${formatBytes(event.loaded)}`);
+            }
+          },
+          reject
+        );
+      });
     }
 
-    async function loadModel(url, fileType) {
-      setStatus('Carregando modelo…');
+    function loadOBJ(url) {
+      return new Promise((resolve, reject) => {
+        setProgress(30, 'Carregando OBJ…');
+        new OBJLoader().load(url, resolve, null, reject);
+      });
+    }
+
+    function loadFBX(url) {
+      return new Promise((resolve, reject) => {
+        setProgress(30, 'Carregando FBX…');
+        new FBXLoader().load(url, fbx => {
+          fbx.scale.setScalar(0.01);
+          resolve(fbx);
+        }, null, reject);
+      });
+    }
+
+    async function loadModel(url, fileType, slug) {
+      setProgress(5, 'Conectando ao servidor…');
       const prev = scene.getObjectByName('__model__');
       if (prev) scene.remove(prev);
       try {
         let model;
-        // IFC já foi convertido para GLTF pelo servidor
         if (fileType === 'ifc' || fileType === 'gltf' || fileType === 'glb') {
-          model = await loadGLTF(url);
+          model = await loadGLTF(url, slug);
         } else if (fileType === 'obj') {
           model = await loadOBJ(url);
         } else if (fileType === 'fbx') {
@@ -147,15 +255,24 @@
         } else {
           throw new Error('Formato não suportado: ' + fileType);
         }
+
+        setProgress(95, 'Construindo cena…');
         model.name = '__model__';
         scene.add(model);
         fitCamera(model);
-        setStatus('');
-        showInfo('✓ Modelo carregado');
-        document.getElementById('format-badge').textContent = fileType.toUpperCase();
+
+        // Espera um frame renderizar antes de esconder o overlay
+        requestAnimationFrame(() => {
+          setProgress(100, 'Pronto!');
+          setTimeout(hideOverlay, 300);
+          showInfo('✓ Modelo carregado');
+          document.getElementById('format-badge').textContent = fileType.toUpperCase();
+        });
       } catch (err) {
         console.error('Erro ao carregar modelo:', err);
-        setStatus('Erro: ' + err.message, true);
+        loadingLabel.textContent = 'Erro: ' + err.message;
+        loadingLabel.style.color = '#ff6b6b';
+        progressBar.style.background = '#cc4444';
       }
     }
 
@@ -175,21 +292,7 @@
       grid.position.y = box.min.y || 0;
     }
 
-    function setStatus(msg, isError) {
-      const el = document.getElementById('status');
-      el.textContent = msg;
-      el.style.display = msg ? 'block' : 'none';
-      el.style.color = isError ? '#ff6b6b' : '#aaaacc';
-    }
-
-    function showInfo(msg) {
-      const el = document.getElementById('info-toast');
-      el.textContent = msg;
-      el.style.opacity = '1';
-      setTimeout(function() { el.style.opacity = '0'; }, 3000);
-    }
-
-    window.addEventListener('resize', function() {
+    window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -201,42 +304,56 @@
       renderer.render(scene, camera);
     })();
 
+    // ── Init ──────────────────────────────────────────────────────────────────
     async function init() {
       const slug = window.location.pathname.split('/').filter(Boolean).pop();
-      if (!slug) return setStatus('Nenhum projeto especificado', true);
+      if (!slug) {
+        loadingLabel.textContent = 'Nenhum projeto especificado';
+        loadingLabel.style.color = '#ff6b6b';
+        return;
+      }
+
+      setProgress(2, 'Buscando informações do projeto…');
+
       try {
         const res = await fetch('/api/projects/' + slug);
         if (!res.ok) throw new Error('Projeto não encontrado');
         const project = await res.json();
+
         document.title = project.name + ' — PerfecAire';
         document.getElementById('project-name').textContent = project.name;
         if (project.description) document.getElementById('project-desc').textContent = project.description;
-        // A barra final é essencial: o GLTFLoader resolve caminhos relativos (.bin, texturas)
-        // em relação à URL do arquivo principal. Com a barra, "/api/proxy/SLUG/3dExport.bin"
-        // é resolvido corretamente pela rota auxiliar do proxy.
-        await loadModel('/api/proxy/' + project.slug + '/', project.file_type);
+
+        setProgress(8, 'Iniciando download…');
+        await loadModel('/api/proxy/' + project.slug, project.file_type, project.slug);
       } catch (err) {
-        setStatus(err.message, true);
+        loadingLabel.textContent = err.message;
+        loadingLabel.style.color = '#ff6b6b';
       }
     }
+
     init();
 
-    document.getElementById('btn-fit').addEventListener('click', function() {
+    // ── Botões de controle ────────────────────────────────────────────────────
+    document.getElementById('btn-fit').addEventListener('click', () => {
       const m = scene.getObjectByName('__model__');
       if (m) fitCamera(m);
     });
+
     document.getElementById('btn-grid').addEventListener('click', function() {
       grid.visible = !grid.visible;
       this.style.color = grid.visible ? '#aaaacc' : '#555588';
     });
-    var wireOn = false;
+
+    let wireOn = false;
     document.getElementById('btn-wire').addEventListener('click', function() {
       wireOn = !wireOn;
       const m = scene.getObjectByName('__model__');
-      if (m) m.traverse(function(c) { if (c.isMesh) c.material.wireframe = wireOn; });
+      if (m) m.traverse(c => { if (c.isMesh) c.material.wireframe = wireOn; });
       this.style.color = wireOn ? '#a090ff' : '#aaaacc';
     });
-    document.getElementById('btn-fullscreen').addEventListener('click', function() {
+
+    document.getElementById('btn-fullscreen').addEventListener('click', () => {
       if (!document.fullscreenElement) document.documentElement.requestFullscreen();
       else document.exitFullscreen();
     });
