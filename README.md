@@ -1,4 +1,4 @@
-# perfect aire Viewer 3D
+# Perfect Aire Viewer 3D
 
 Visualizador 3D para modelos **IFC, GLB, GLTF+BIN, OBJ e FBX** — com painel admin, upload, QR Code e armazenamento na nuvem (Cloudflare R2).
 
@@ -40,52 +40,3 @@ Suba o `.ifc` no painel. A conversão roda num **worker thread** (não trava o s
 cp .env.example .env      # edite conforme necessário
 npm install
 npm run dev               # ou: npm start
-```
-
-Acesse `http://localhost:3000/admin`. Na primeira execução, se `ADMIN_PASSWORD` estiver vazio, a senha do admin é gerada e mostrada no log uma vez.
-
----
-
-## Variáveis de ambiente
-
-Veja `.env.example`. As principais:
-
-- `JWT_SECRET` — **obrigatório em produção** (`openssl rand -hex 32`).
-- `ADMIN_PASSWORD` — senha inicial do admin (ou é gerada e logada).
-- `GLB_COMPRESSION` — `draco` (padrão), `meshopt` ou `none`.
-- `WORKER_MAX_MB` — RAM do worker de conversão (padrão 8192).
-- `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` — Cloudflare R2. Sem elas, grava em disco local (efêmero no Railway).
-
----
-
-## Deploy Railway
-
-1. `git push` para o GitHub; no Railway, "Deploy from GitHub".
-2. Configure as variáveis acima em Variables (incluindo as do R2).
-3. Para conversão de IFC grande no servidor, ajuste o plano para ter RAM suficiente.
-
-A persistência de verdade vem do R2. Sem ele, o disco do Railway é efêmero e os modelos somem a cada deploy.
-
----
-
-## Estrutura
-
-```
-src/
-  server.js                  Entry point Express
-  config.js                  JWT_SECRET central (aborta em produção se ausente)
-  middleware/auth.js         JWT
-  routes/
-    auth.js                  login / me / change-password (+ rate limit)
-    projects.js              upload, conversão (worker p/ IFC), CRUD
-    proxy.js                 serve o modelo do storage (R2 ou local)
-  services/
-    db.js                    SQLite (sql.js)
-    storage.js               Cloudflare R2 + fallback local
-    converter.js             IFC/GLTF+BIN → GLB comprimido
-    conversion_worker.js     roda a conversão fora do event loop
-client/public/
-  admin.html                 painel admin
-  viewer.html                viewer Three.js
-converter_offline.js         conversão IFC→GLB na sua máquina (modelos grandes)
-```
