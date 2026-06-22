@@ -459,6 +459,16 @@
       if (xhr.status >= 400) {
         errEl.textContent = result.error || 'Erro no upload';
         errEl.style.display = 'block';
+      } else if (result.converting && result.jobId) {
+        // IFC em conversão assíncrona — polling
+        okEl.innerHTML = '⏳ Arquivo IFC sendo convertido em background… aguarde.';
+        okEl.style.display = 'block';
+        document.getElementById('proj-name').value = '';
+        document.getElementById('proj-desc').value = '';
+        selectedFile = null;
+        document.getElementById('file-info').style.display = 'none';
+        fileInput.value = '';
+        pollConversion(result.jobId, okEl);
       } else {
         okEl.innerHTML = `✓ Projeto criado! <a href="${result.viewerUrl}" target="_blank" style="color:var(--success)">Abrir viewer →</a>`;
         okEl.style.display = 'block';
@@ -502,8 +512,9 @@
 
         return `
           <div class="project-card">
-            <div class="project-qr">
-              ${p.qr_url ? `<img src="${p.qr_url}" alt="QR Code">` : '<div style="width:64px;height:64px;background:#333;border-radius:8px"></div>'}
+            <div class="project-qr" style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              ${p.qr_url ? `<img src="${p.qr_url}" alt="QR Code" style="width:64px;height:64px;border-radius:8px;cursor:pointer" onclick="downloadQr('${p.qr_url}','${p.name}')">
+              <button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="downloadQr('${p.qr_url}','${p.name}')">⬇ QR</button>` : '<div style="width:64px;height:64px;background:#333;border-radius:8px"></div>'}
             </div>
             <div class="project-info">
               <div class="name">${p.name}</div>
@@ -533,6 +544,13 @@
     alert('Link copiado!');
   }
 
+  function downloadQr(dataUrl, projectName) {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = (projectName || 'qrcode').replace(/[^a-z0-9]/gi, '_') + '_qr.png';
+    a.click();
+  }
+
   async function deleteProject(id) {
     if (!confirm('Excluir este projeto? O arquivo 3D será removido permanentemente.')) return;
     try {
@@ -544,6 +562,31 @@
   }
 
   document.getElementById('btn-refresh').addEventListener('click', loadProjects);
+
+  // ─── Polling de conversão IFC ────────────────────────────────────────────
+
+  function pollConversion(jobId, statusEl) {
+    const interval = setInterval(async () => {
+      try {
+        const job = await apiGet('/api/projects/job/' + jobId);
+        if (job.status === 'done') {
+          clearInterval(interval);
+          statusEl.innerHTML = `✓ Conversão concluída! <a href="\${job.viewerUrl}" target="_blank" style="color:var(--success)">Abrir viewer →</a>`;
+          loadProjects();
+        } else if (job.status === 'error') {
+          clearInterval(interval);
+          statusEl.style.background = 'rgba(224,85,85,0.12)';
+          statusEl.style.color = '#ff8888';
+          statusEl.style.borderColor = 'rgba(224,85,85,0.3)';
+          statusEl.textContent = 'Erro na conversão: ' + job.error;
+        } else {
+          statusEl.innerHTML = '⏳ Convertendo IFC… aguarde. Arquivos grandes podem demorar 1-2 minutos.';
+        }
+      } catch (e) {
+        // ignora erros de polling
+      }
+    }, 3000);
+  }
 
   // ─── Init ────────────────────────────────────────────────────────────────
 
