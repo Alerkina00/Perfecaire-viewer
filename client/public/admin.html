@@ -27,7 +27,6 @@
       min-height: 100vh;
     }
 
-    /* ── Login ── */
     #login-screen {
       display: flex;
       align-items: center;
@@ -56,7 +55,6 @@
       margin-bottom: 28px;
     }
 
-    /* ── Admin ── */
     #admin-screen { display: none; }
 
     header {
@@ -73,7 +71,6 @@
 
     .main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
 
-    /* ── Upload card ── */
     .upload-card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -104,7 +101,6 @@
     input:focus, textarea:focus { border-color: var(--accent); }
     textarea { resize: vertical; min-height: 70px; }
 
-    /* Drop zone */
     .dropzone {
       border: 2px dashed var(--border);
       border-radius: 10px;
@@ -121,9 +117,30 @@
     .dropzone .icon { font-size: 32px; margin-bottom: 8px; }
     .dropzone p { font-size: 13px; color: var(--text-muted); }
     .dropzone strong { color: var(--accent-light); }
-    .dropzone .file-info { font-size: 13px; color: var(--success); margin-top: 8px; font-weight: 500; }
 
-    /* Botões */
+    .file-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .file-tag {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .file-tag .remove {
+      cursor: pointer;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+    .file-tag .remove:hover { color: var(--danger); }
+
     .btn {
       padding: 9px 20px;
       border-radius: 8px;
@@ -140,7 +157,6 @@
     .btn-danger  { background: var(--danger); color: #fff; }
     .btn-ghost   { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
 
-    /* Progress */
     .progress-bar {
       height: 4px;
       background: var(--surface2);
@@ -151,7 +167,6 @@
     }
     .progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; width: 0%; }
 
-    /* ── Tabela de projetos ── */
     .section-title {
       font-size: 15px;
       font-weight: 600;
@@ -205,7 +220,6 @@
       font-size: 14px;
     }
 
-    /* Alert */
     .alert {
       padding: 10px 16px;
       border-radius: 8px;
@@ -268,10 +282,13 @@
 
       <div class="dropzone" id="dropzone">
         <div class="icon">📁</div>
-        <p>Arraste o arquivo ou <strong>clique para selecionar</strong></p>
-        <p style="margin-top:6px; font-size:12px">Suporte: <strong>IFC · GLTF · GLB · OBJ · FBX</strong> — até 500MB</p>
-        <div class="file-info" id="file-info" style="display:none"></div>
-        <input type="file" id="file-input" style="display:none" accept=".ifc,.gltf,.glb,.obj,.fbx">
+        <p>Arraste os arquivos ou <strong>clique para selecionar</strong></p>
+        <p style="margin-top:6px; font-size:12px">
+          Suporte: <strong>IFC · GLB · GLTF+BIN · OBJ · FBX</strong> — até 500MB<br>
+          Para GLTF com .bin externo, selecione ambos os arquivos juntos.
+        </p>
+        <div class="file-list" id="file-list"></div>
+        <input type="file" id="file-input" style="display:none" multiple accept=".ifc,.gltf,.glb,.obj,.fbx,.bin,.png,.jpg,.jpeg,.webp">
       </div>
 
       <div class="progress-bar" id="progress-bar">
@@ -295,6 +312,7 @@
 <script>
   const API = '';
   let token = localStorage.getItem('pa_token');
+  let selectedFiles = [];
 
   // ─── Auth ────────────────────────────────────────────────────────────────
 
@@ -370,9 +388,7 @@
 
   document.getElementById('btn-logout').addEventListener('click', logout);
 
-  // ─── Dropzone ────────────────────────────────────────────────────────────
-
-  let selectedFile = null;
+  // ─── Dropzone multi-arquivo ─────────────────────────────────────────────
 
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('file-input');
@@ -387,30 +403,61 @@
   dropzone.addEventListener('drop', e => {
     e.preventDefault();
     dropzone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file) setFile(file);
+    const files = e.dataTransfer.files;
+    if (files.length) addFiles(files);
   });
 
   fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) setFile(fileInput.files[0]);
+    if (fileInput.files.length) {
+      addFiles(fileInput.files);
+      fileInput.value = '';
+    }
   });
 
-  function setFile(file) {
-    selectedFile = file;
-    const ext = file.name.split('.').pop().toLowerCase();
-    const allowed = ['ifc','gltf','glb','obj','fbx'];
-    if (!allowed.includes(ext)) {
-      alert(`Formato .${ext} não suportado. Use: ${allowed.join(', ')}`);
-      selectedFile = null;
+  function addFiles(files) {
+    const allowedExts = ['ifc', 'gltf', 'glb', 'obj', 'fbx', 'bin', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'tga', 'bmp'];
+    const newFiles = [];
+
+    for (const file of files) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!allowedExts.includes(ext)) {
+        alert(`Arquivo ${file.name} com extensão .${ext} não suportado.`);
+        continue;
+      }
+      // Evita duplicados
+      if (selectedFiles.some(f => f.name === file.name && f.size === file.size)) continue;
+      newFiles.push(file);
+    }
+
+    if (newFiles.length === 0) return;
+
+    selectedFiles = [...selectedFiles, ...newFiles];
+    renderFileList();
+    updateUploadButton();
+  }
+
+  function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    renderFileList();
+    updateUploadButton();
+  }
+
+  function renderFileList() {
+    const container = document.getElementById('file-list');
+    if (selectedFiles.length === 0) {
+      container.innerHTML = '';
       return;
     }
-    const size = file.size > 1024*1024
-      ? (file.size / 1024 / 1024).toFixed(1) + ' MB'
-      : (file.size / 1024).toFixed(0) + ' KB';
-    const info = document.getElementById('file-info');
-    info.textContent = `${file.name} (${size})`;
-    info.style.display = 'block';
-    document.getElementById('btn-upload').disabled = false;
+
+    container.innerHTML = selectedFiles.map((f, i) => {
+      const size = f.size > 1024*1024 ? (f.size/1024/1024).toFixed(1)+'MB' : (f.size/1024).toFixed(0)+'KB';
+      return `<span class="file-tag">${f.name} (${size}) <span class="remove" onclick="removeFile(${i})">×</span></span>`;
+    }).join('');
+  }
+
+  function updateUploadButton() {
+    const btn = document.getElementById('btn-upload');
+    btn.disabled = selectedFiles.length === 0;
   }
 
   // ─── Upload ──────────────────────────────────────────────────────────────
@@ -424,12 +471,14 @@
     okEl.style.display = 'none';
 
     if (!name) { errEl.textContent = 'Nome do projeto obrigatório'; errEl.style.display = 'block'; return; }
-    if (!selectedFile) { errEl.textContent = 'Selecione um arquivo'; errEl.style.display = 'block'; return; }
+    if (selectedFiles.length === 0) { errEl.textContent = 'Selecione pelo menos um arquivo'; errEl.style.display = 'block'; return; }
 
     const form = new FormData();
     form.append('name', name);
     form.append('description', desc);
-    form.append('file', selectedFile);
+    for (const file of selectedFiles) {
+      form.append('files', file);
+    }
 
     const btn = document.getElementById('btn-upload');
     btn.disabled = true;
@@ -460,23 +509,14 @@
         errEl.textContent = result.error || 'Erro no upload';
         errEl.style.display = 'block';
       } else if (result.converting && result.jobId) {
-        // IFC em conversão assíncrona — polling
-        okEl.innerHTML = '⏳ Arquivo IFC sendo convertido em background… aguarde.';
+        okEl.innerHTML = '⏳ Arquivo sendo convertido em background… aguarde.';
         okEl.style.display = 'block';
-        document.getElementById('proj-name').value = '';
-        document.getElementById('proj-desc').value = '';
-        selectedFile = null;
-        document.getElementById('file-info').style.display = 'none';
-        fileInput.value = '';
+        clearForm();
         pollConversion(result.jobId, okEl);
       } else {
         okEl.innerHTML = `✓ Projeto criado! <a href="${result.viewerUrl}" target="_blank" style="color:var(--success)">Abrir viewer →</a>`;
         okEl.style.display = 'block';
-        document.getElementById('proj-name').value = '';
-        document.getElementById('proj-desc').value = '';
-        selectedFile = null;
-        document.getElementById('file-info').style.display = 'none';
-        fileInput.value = '';
+        clearForm();
         loadProjects();
       }
     } catch (err) {
@@ -489,6 +529,14 @@
       progressFill.style.width = '0%';
     }
   });
+
+  function clearForm() {
+    document.getElementById('proj-name').value = '';
+    document.getElementById('proj-desc').value = '';
+    selectedFiles = [];
+    renderFileList();
+    updateUploadButton();
+  }
 
   // ─── Lista de projetos ───────────────────────────────────────────────────
 
@@ -563,7 +611,7 @@
 
   document.getElementById('btn-refresh').addEventListener('click', loadProjects);
 
-  // ─── Polling de conversão IFC ────────────────────────────────────────────
+  // ─── Polling de conversão ────────────────────────────────────────────────
 
   function pollConversion(jobId, statusEl) {
     const interval = setInterval(async () => {
@@ -571,7 +619,7 @@
         const job = await apiGet('/api/projects/job/' + jobId);
         if (job.status === 'done') {
           clearInterval(interval);
-          statusEl.innerHTML = `✓ Conversão concluída! <a href="\${job.viewerUrl}" target="_blank" style="color:var(--success)">Abrir viewer →</a>`;
+          statusEl.innerHTML = `✓ Conversão concluída! <a href="${job.viewerUrl}" target="_blank" style="color:var(--success)">Abrir viewer →</a>`;
           loadProjects();
         } else if (job.status === 'error') {
           clearInterval(interval);
@@ -580,7 +628,7 @@
           statusEl.style.borderColor = 'rgba(224,85,85,0.3)';
           statusEl.textContent = 'Erro na conversão: ' + job.error;
         } else {
-          statusEl.innerHTML = '⏳ Convertendo IFC… aguarde. Arquivos grandes podem demorar 1-2 minutos.';
+          statusEl.innerHTML = '⏳ Convertendo arquivo… aguarde.';
         }
       } catch (e) {
         // ignora erros de polling
