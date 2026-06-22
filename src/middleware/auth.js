@@ -1,6 +1,7 @@
+// src/middleware/auth.js
+'use strict';
 const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'perfecaire-secret-key-change-in-production';
+const { JWT_SECRET } = require('../config');
 
 module.exports = (req, res, next) => {
   const auth = req.headers.authorization;
@@ -8,8 +9,7 @@ module.exports = (req, res, next) => {
 
   const token = auth.replace('Bearer ', '');
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
     res.status(401).json({ error: 'Token inválido' });

@@ -55,9 +55,21 @@ async function getDb() {
   const bcrypt = require('bcryptjs');
   const adminExists = db.exec('SELECT * FROM users WHERE username = "admin"');
   if (adminExists.length === 0 || adminExists[0].values.length === 0) {
-    const hash = bcrypt.hashSync('admin123', 10);
+    let pwd = process.env.ADMIN_PASSWORD;
+    if (!pwd) {
+      // Sem ADMIN_PASSWORD: gera uma senha aleatória forte e mostra UMA vez no log,
+      // em vez de criar com a senha fixa "admin123". Troque depois pela tela.
+      pwd = require('crypto').randomBytes(12).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 14);
+      console.warn('============================================================');
+      console.warn('  ADMIN_PASSWORD não definido. Senha gerada para "admin":');
+      console.warn('  >>>  ' + pwd + '  <<<');
+      console.warn('  Anote agora. Defina ADMIN_PASSWORD no ambiente ou troque');
+      console.warn('  a senha pela tela de admin (POST /api/auth/change-password).');
+      console.warn('============================================================');
+    }
+    const hash = bcrypt.hashSync(pwd, 10);
     db.run('INSERT INTO users (username, password) VALUES (?, ?)', ['admin', hash]);
-    console.log('✓ Usuário admin criado (senha: admin123)');
+    console.log('✓ Usuário admin criado');
   }
 
   saveDb();

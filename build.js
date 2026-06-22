@@ -1,20 +1,3 @@
-const fs   = require('fs');
-const path = require('path');
-
-const toRemove = [
-  path.resolve(__dirname, 'client/public/viewer.bundle.js'),
-  path.resolve(__dirname, 'client/public/IFC.wasm'),
-];
-
-let removed = 0;
-for (const p of toRemove) {
-  if (fs.existsSync(p)) {
-    fs.unlinkSync(p);
-    console.log('✓ Removido: ' + path.basename(p));
-    removed++;
-  }
-}
-
-if (removed === 0) {
-  console.log('✓ Nenhum arquivo antigo encontrado. Tudo limpo.');
-}
+// build.js — o cliente (Three.js) é carregado via CDN no viewer.html; não há
+// bundle local a gerar nem limpar. Mantido como no-op para o build do Railway.
+console.log('✓ Sem etapa de build do cliente (Three.js via CDN).');

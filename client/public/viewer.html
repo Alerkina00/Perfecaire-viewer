@@ -184,7 +184,11 @@
     sun.position.set(20, 40, 20);
     sun.castShadow = true;
     scene.add(sun);
-    scene.add(new THREE.DirectionalLight(0xaaccff, 0.4)).position.set(-20, 10, -20);
+    // .add() devolve a cena, não a luz — por isso a luz de preenchimento
+    // precisa ser posicionada separadamente (antes ficava em 0,0,0).
+    const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
+    fill.position.set(-20, 10, -20);
+    scene.add(fill);
 
     const grid = new THREE.GridHelper(100, 50, 0x444466, 0x333355);
     grid.material.opacity = 0.4;

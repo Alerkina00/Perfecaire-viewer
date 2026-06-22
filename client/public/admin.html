@@ -546,44 +546,90 @@
 
     try {
       const projects = await apiGet('/api/projects');
+      grid.innerHTML = '';
       if (!projects.length) {
         grid.innerHTML = '<div class="empty-state">Nenhum projeto ainda. Faça o primeiro upload!</div>';
         return;
       }
 
-      grid.innerHTML = projects.map(p => {
+      // Construção via DOM com textContent/listeners — nome e descrição vêm do
+      // usuário, então nunca entram como HTML (fecha o stored XSS).
+      for (const p of projects) {
         const size = p.file_size > 1024*1024
           ? (p.file_size/1024/1024).toFixed(1)+'MB'
           : (p.file_size/1024).toFixed(0)+'KB';
         const date = new Date(p.created_at).toLocaleDateString('pt-BR');
         const viewerUrl = `/v/${p.slug}`;
 
-        return `
-          <div class="project-card">
-            <div class="project-qr" style="display:flex;flex-direction:column;align-items:center;gap:4px">
-              ${p.qr_url ? `<img src="${p.qr_url}" alt="QR Code" style="width:64px;height:64px;border-radius:8px;cursor:pointer" onclick="downloadQr('${p.qr_url}','${p.name}')">
-              <button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="downloadQr('${p.qr_url}','${p.name}')">⬇ QR</button>` : '<div style="width:64px;height:64px;background:#333;border-radius:8px"></div>'}
-            </div>
-            <div class="project-info">
-              <div class="name">${p.name}</div>
-              <div class="meta">
-                <span class="badge badge-${p.file_type}">${p.file_type.toUpperCase()}</span>
-                &nbsp;${size} &nbsp;·&nbsp; ${date}
-                ${p.description ? `&nbsp;·&nbsp; ${p.description}` : ''}
-              </div>
-            </div>
-            <div class="project-actions">
-              <a href="${viewerUrl}" target="_blank">
-                <button class="btn btn-primary" style="font-size:13px">Abrir</button>
-              </a>
-              <button class="btn btn-ghost" style="font-size:13px" onclick="copyLink('${viewerUrl}')">Copiar link</button>
-              <button class="btn btn-danger" style="font-size:13px" onclick="deleteProject(${p.id})">Excluir</button>
-            </div>
-          </div>
-        `;
-      }).join('');
+        const card = document.createElement('div');
+        card.className = 'project-card';
+
+        // QR
+        const qrWrap = document.createElement('div');
+        qrWrap.className = 'project-qr';
+        qrWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px';
+        if (p.qr_url) {
+          const img = document.createElement('img');
+          img.src = p.qr_url; img.alt = 'QR Code';
+          img.style.cssText = 'width:64px;height:64px;border-radius:8px;cursor:pointer';
+          img.addEventListener('click', () => downloadQr(p.qr_url, p.name));
+          const qrBtn = document.createElement('button');
+          qrBtn.className = 'btn btn-ghost';
+          qrBtn.style.cssText = 'font-size:10px;padding:2px 8px';
+          qrBtn.textContent = '⬇ QR';
+          qrBtn.addEventListener('click', () => downloadQr(p.qr_url, p.name));
+          qrWrap.appendChild(img); qrWrap.appendChild(qrBtn);
+        } else {
+          const ph = document.createElement('div');
+          ph.style.cssText = 'width:64px;height:64px;background:#333;border-radius:8px';
+          qrWrap.appendChild(ph);
+        }
+
+        // Info
+        const info = document.createElement('div');
+        info.className = 'project-info';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'name';
+        nameEl.textContent = p.name || '';
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-' + String(p.file_type || '').replace(/[^a-z0-9]/gi, '');
+        badge.textContent = String(p.file_type || '').toUpperCase();
+        meta.appendChild(badge);
+        meta.appendChild(document.createTextNode(
+          ` ${size} · ${date}` + (p.description ? ` · ${p.description}` : '')
+        ));
+        info.appendChild(nameEl); info.appendChild(meta);
+
+        // Ações
+        const actions = document.createElement('div');
+        actions.className = 'project-actions';
+        const openA = document.createElement('a');
+        openA.href = viewerUrl; openA.target = '_blank';
+        const openBtn = document.createElement('button');
+        openBtn.className = 'btn btn-primary'; openBtn.style.fontSize = '13px';
+        openBtn.textContent = 'Abrir';
+        openA.appendChild(openBtn);
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn btn-ghost'; copyBtn.style.fontSize = '13px';
+        copyBtn.textContent = 'Copiar link';
+        copyBtn.addEventListener('click', () => copyLink(viewerUrl));
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-danger'; delBtn.style.fontSize = '13px';
+        delBtn.textContent = 'Excluir';
+        delBtn.addEventListener('click', () => deleteProject(p.id));
+        actions.appendChild(openA); actions.appendChild(copyBtn); actions.appendChild(delBtn);
+
+        card.appendChild(qrWrap); card.appendChild(info); card.appendChild(actions);
+        grid.appendChild(card);
+      }
     } catch (err) {
-      grid.innerHTML = `<div class="empty-state">Erro ao carregar: ${err.message}</div>`;
+      grid.innerHTML = '';
+      const e = document.createElement('div');
+      e.className = 'empty-state';
+      e.textContent = 'Erro ao carregar: ' + err.message;
+      grid.appendChild(e);
     }
   }
 

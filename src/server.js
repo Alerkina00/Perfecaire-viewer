@@ -1,5 +1,8 @@
 // src/server.js
+'use strict';
 require('dotenv').config();
+require('./config'); // valida JWT_SECRET no boot (aborta em produção se ausente)
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -8,35 +11,29 @@ const { getDb, saveDb } = require('./services/db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ── Middlewares ───────────────────────────────────────────────────────────────
-app.use(cors());
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// O front é servido pelo próprio servidor (mesma origem). Em produção, restringe
+// ao BASE_URL; em dev, libera. Antes liberava qualquer origem (NC-08).
+const corsOrigin = process.env.BASE_URL ? [process.env.BASE_URL] : true;
+app.use(cors({ origin: corsOrigin }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── Arquivos estáticos do cliente ─────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../client/public')));
 
-// ── Serve a pasta de uploads diretamente com cache longo ─────────────────────
-// Isso permite que o GLTFLoader busque arquivos .bin e texturas sem passar pelo proxy.
-// O proxy ainda existe para slugs (URL amigável), mas downloads diretos são mais rápidos.
-app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
-  maxAge: '7d',          // cache de 7 dias no browser
-  immutable: true,       // diz ao browser que o arquivo não muda
-  etag: true,
-  lastModified: true,
-}));
+// Observação: o estático público de /uploads foi removido. Os modelos agora são
+// servidos pela rota /api/proxy/:slug, que busca do storage (R2 ou local) — assim
+// nada é exposto diretamente pelo nome do arquivo.
 
 // ── Rotas da API ──────────────────────────────────────────────────────────────
 app.use('/api/auth',     require('./routes/auth'));
 app.use('/api/projects', require('./routes/projects'));
 app.use('/api/proxy',    require('./routes/proxy'));
 
-// ── Viewer público ────────────────────────────────────────────────────────────
-app.get('/v/:slug', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/public/viewer.html'));
-});
-
-// ── Admin ─────────────────────────────────────────────────────────────────────
+// ── Viewer público e Admin ────────────────────────────────────────────────────
+app.get('/v/:slug',    (req, res) => res.sendFile(path.join(__dirname, '../client/public/viewer.html')));
 app.get('/admin',      (req, res) => res.sendFile(path.join(__dirname, '../client/public/admin.html')));
 app.get('/admin.html', (req, res) => res.sendFile(path.join(__dirname, '../client/public/admin.html')));
 
@@ -54,7 +51,4 @@ async function start() {
 
 start().catch(console.error);
 
-process.on('SIGINT', () => {
-  saveDb();
-  process.exit();
-});
+process.on('SIGINT', () => { saveDb(); process.exit(); });
