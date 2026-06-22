@@ -1,7 +1,7 @@
 // src/server.js
 'use strict';
 require('dotenv').config();
-require('./config'); // valida JWT_SECRET no boot (aborta em produção se ausente)
+require('./config');
 
 const express = require('express');
 const cors = require('cors');
@@ -12,8 +12,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-// O front é servido pelo próprio servidor (mesma origem). Em produção, restringe
-// ao BASE_URL; em dev, libera. Antes liberava qualquer origem (NC-08).
 const corsOrigin = process.env.BASE_URL ? [process.env.BASE_URL] : true;
 app.use(cors({ origin: corsOrigin }));
 
@@ -22,10 +20,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // ── Arquivos estáticos do cliente ─────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../client/public')));
-
-// Observação: o estático público de /uploads foi removido. Os modelos agora são
-// servidos pela rota /api/proxy/:slug, que busca do storage (R2 ou local) — assim
-// nada é exposto diretamente pelo nome do arquivo.
 
 // ── Rotas da API ──────────────────────────────────────────────────────────────
 app.use('/api/auth',     require('./routes/auth'));
@@ -44,7 +38,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime
 async function start() {
   await getDb();
   app.listen(PORT, () => {
-    console.log(`✓ Servidor rodando na porta ${PORT}`);
+    console.log(`✓ Perfect Aire Viewer rodando na porta ${PORT}`);
     console.log(`  Admin: http://localhost:${PORT}/admin`);
   });
 }
