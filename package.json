@@ -1,5 +1,5 @@
 {
-  "name": "perfecaire-viewer",
+  "name": "perfect aire-viewer",
   "version": "2.0.0",
   "description": "Visualizador 3D (IFC/GLB/GLTF+BIN/OBJ/FBX) com conversao em worker thread e storage Cloudflare R2",
   "main": "src/server.js",
