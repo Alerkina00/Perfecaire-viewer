@@ -8,14 +8,36 @@ const crypto = require('crypto');
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 } // 500MB
+  limits: { fileSize: 500 * 1024 * 1024 }
 });
 
 const auth = require('../middleware/auth');
 
-// Mapa de jobs de conversão em andamento
-// { [jobId]: { status: 'processing'|'done'|'error', slug, error } }
-const conversionJobs = {};
+// ─── helpers de job (persistidos no SQLite) ──────────────────────────────────
+
+async function createJob(jobId) {
+  const db = await getDb();
+  db.run('INSERT INTO conversion_jobs (id, status) VALUES (?, ?)', [jobId, 'processing']);
+  saveDb();
+}
+
+async function updateJob(jobId, fields) {
+  const db = await getDb();
+  const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+  const vals = [...Object.values(fields), jobId];
+  db.run(`UPDATE conversion_jobs SET ${sets} WHERE id = ?`, vals);
+  saveDb();
+}
+
+async function getJob(jobId) {
+  const db = await getDb();
+  const r = db.exec('SELECT id, status, slug, viewer_url, qr_url, error FROM conversion_jobs WHERE id = ?', [jobId]);
+  if (!r.length || !r[0].values.length) return null;
+  const [id, status, slug, viewer_url, qr_url, error] = r[0].values[0];
+  return { id, status, slug, viewerUrl: viewer_url, qrUrl: qr_url, error };
+}
+
+// ─── Rotas ───────────────────────────────────────────────────────────────────
 
 // Listar projetos
 router.get('/', auth, async (req, res) => {
@@ -33,19 +55,23 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// Status de conversão de um job
-router.get('/job/:jobId', auth, (req, res) => {
-  const job = conversionJobs[req.params.jobId];
-  if (!job) return res.status(404).json({ error: 'Job não encontrado' });
-  res.json(job);
+// Status de um job de conversão (persiste no SQLite — sobrevive a reinicializações)
+router.get('/job/:jobId', auth, async (req, res) => {
+  try {
+    const job = await getJob(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job não encontrado' });
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Buscar um projeto pelo slug
+// Buscar projeto pelo slug
 router.get('/:slug', async (req, res) => {
   try {
     const db = await getDb();
     const result = db.exec('SELECT * FROM projects WHERE slug = ?', [req.params.slug]);
-    if (result.length === 0 || result[0].values.length === 0) {
+    if (!result.length || !result[0].values.length) {
       return res.status(404).json({ error: 'Projeto não encontrado' });
     }
     const row = result[0].values[0];
@@ -59,7 +85,7 @@ router.get('/:slug', async (req, res) => {
   }
 });
 
-// Criar projeto — IFC converte em background; outros formatos sobem direto
+// Criar projeto
 router.post('/', auth, upload.single('file'), async (req, res) => {
   try {
     const { name, description } = req.body;
@@ -75,17 +101,19 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: `Formato .${ext} não suportado` });
     }
 
-    // IFC → conversão assíncrona em background
+    // IFC → conversão assíncrona, status salvo no banco
     if (ext === 'ifc') {
       const jobId = crypto.randomBytes(6).toString('hex');
-      conversionJobs[jobId] = { status: 'processing', slug: null, error: null };
+      await createJob(jobId);
 
-      // Responde imediatamente com o jobId
+      // Responde imediatamente
       res.status(202).json({ jobId, converting: true });
 
-      // Processa em background (sem bloquear o request)
+      // Processa em background
       const fileBuffer = file.buffer;
       const originalName = file.originalname;
+      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+
       setImmediate(async () => {
         try {
           console.log(`[job:${jobId}] Convertendo IFC: ${originalName}`);
@@ -95,7 +123,7 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
           console.log(`[job:${jobId}] Conversão concluída: ${gltfBuffer.length} bytes`);
 
           const fileKey = await uploadFile(gltfBuffer, fileName, 'model/gltf+json');
-          const viewerUrl = `${process.env.BASE_URL || 'http://localhost:3000'}/v/${slug}`;
+          const viewerUrl = `${baseUrl}/v/${slug}`;
           const qrUrl = await QRCode.toDataURL(viewerUrl);
 
           const db = await getDb();
@@ -104,35 +132,29 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [slug, name, description, originalName, gltfBuffer.length, 'gltf', fileKey, qrUrl]
           );
-          saveDb();
-
-          conversionJobs[jobId] = { status: 'done', slug, viewerUrl, qrUrl };
+          await updateJob(jobId, { status: 'done', slug, viewer_url: viewerUrl, qr_url: qrUrl });
           console.log(`[job:${jobId}] Projeto criado: ${slug}`);
-
-          // Limpa o job após 10 minutos
-          setTimeout(() => { delete conversionJobs[jobId]; }, 10 * 60 * 1000);
         } catch (err) {
           console.error(`[job:${jobId}] Erro na conversão:`, err.message);
-          conversionJobs[jobId] = { status: 'error', error: err.message };
+          await updateJob(jobId, { status: 'error', error: err.message });
         }
       });
 
-      return; // já respondeu com 202
+      return;
     }
 
-    // Formatos que não precisam de conversão — sobe direto
-    const fileName = `${slug}.${ext}`;
+    // Outros formatos — sobe direto
     const mimeMap = {
       gltf: 'model/gltf+json',
       glb: 'model/gltf-binary',
       obj: 'text/plain',
       fbx: 'application/octet-stream',
     };
+    const fileName = `${slug}.${ext}`;
     const fileKey = await uploadFile(file.buffer, fileName, mimeMap[ext] || 'application/octet-stream');
 
-    const host = req.get('host');
-    const protocol = req.protocol;
-    const viewerUrl = `${process.env.BASE_URL || `${protocol}://${host}`}/v/${slug}`;
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const viewerUrl = `${baseUrl}/v/${slug}`;
     const qrUrl = await QRCode.toDataURL(viewerUrl);
 
     const db = await getDb();
@@ -145,9 +167,7 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
 
     res.status(201).json({
       id: db.exec('SELECT last_insert_rowid()')[0].values[0][0],
-      slug,
-      viewerUrl,
-      qrUrl,
+      slug, viewerUrl, qrUrl,
     });
   } catch (err) {
     console.error(err);
