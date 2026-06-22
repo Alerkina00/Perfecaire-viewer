@@ -101,14 +101,14 @@ router.post('/', auth, upload.array('files', 20), async (req, res) => {
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
     // ── Verifica se é um conjunto GLTF + BIN ──────────────────────────────────
-    const gltfFile = files.find(f => f.originalname.toLowerCase().endsWith('.gltf'));
-    const binFile = files.find(f => f.originalname.toLowerCase().endsWith('.bin'));
+    const gltfFile  = files.find(f => f.originalname.toLowerCase().endsWith('.gltf'));
+    const binFile   = files.find(f => f.originalname.toLowerCase().endsWith('.bin'));
     const textureFiles = files.filter(f => {
       const ext = f.originalname.toLowerCase().split('.').pop();
       return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'tga', 'bmp'].includes(ext);
     });
 
-    // ── Se tem GLTF + BIN, converte para GLB ─────────────────────────────────
+    // ── GLTF + BIN: tenta converter para GLB, ou serve os arquivos separados ──
     if (gltfFile && binFile) {
       const jobId = crypto.randomBytes(6).toString('hex');
       await createJob(jobId);
@@ -120,7 +120,6 @@ router.post('/', auth, upload.array('files', 20), async (req, res) => {
           console.log(`[job:${jobId}] Convertendo GLTF+BIN para GLB...`);
           const { gltfBinToGlb } = require('../services/converter');
 
-          // Prepara buffers de textura
           const textureBuffers = {};
           for (const tex of textureFiles) {
             textureBuffers[tex.originalname] = tex.buffer;
@@ -147,9 +146,42 @@ router.post('/', auth, upload.array('files', 20), async (req, res) => {
           saveDb();
           await updateJob(jobId, { status: 'done', slug, viewer_url: viewerUrl, qr_url: qrUrl });
           console.log(`[job:${jobId}] GLB criado: /v/${slug}`);
-        } catch (err) {
-          console.error(`[job:${jobId}] Erro:`, err.message);
-          await updateJob(jobId, { status: 'error', error: err.message });
+        } catch (convErr) {
+          // ── Fallback: salva GLTF + auxiliares separados ──────────────────────
+          console.warn(`[job:${jobId}] Conversão GLB falhou (${convErr.message}), salvando GLTF + auxiliares...`);
+          try {
+            // Salva o GLTF principal com fileKey = "SLUG.gltf"
+            const gltfKey = await uploadFile(gltfFile.buffer, `${slug}.gltf`, 'model/gltf+json');
+
+            // Salva o .bin com fileKey = "SLUG_ORIGINALNAME"
+            await uploadFile(binFile.buffer, `${slug}_${binFile.originalname}`, 'application/octet-stream');
+
+            // Salva texturas
+            for (const tex of textureFiles) {
+              const ext = tex.originalname.split('.').pop().toLowerCase();
+              const mime = ext === 'png' ? 'image/png'
+                : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg'
+                : ext === 'webp' ? 'image/webp'
+                : 'application/octet-stream';
+              await uploadFile(tex.buffer, `${slug}_${tex.originalname}`, mime);
+            }
+
+            const viewerUrl = `${baseUrl}/v/${slug}`;
+            const qrUrl = await QRCode.toDataURL(viewerUrl);
+
+            const db = await getDb();
+            db.run(
+              `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [slug, name, description, gltfFile.originalname, gltfFile.buffer.length, 'gltf', gltfKey, qrUrl]
+            );
+            saveDb();
+            await updateJob(jobId, { status: 'done', slug, viewer_url: viewerUrl, qr_url: qrUrl });
+            console.log(`[job:${jobId}] Projeto GLTF+BIN salvo separado: /v/${slug}`);
+          } catch (fallbackErr) {
+            console.error(`[job:${jobId}] Fallback também falhou:`, fallbackErr.message);
+            await updateJob(jobId, { status: 'error', error: fallbackErr.message });
+          }
         }
       });
 
@@ -204,13 +236,52 @@ router.post('/', auth, upload.array('files', 20), async (req, res) => {
       });
     }
 
-    // Verifica se GLTF é autocontido (não tem referência a .bin externo)
+    // Para GLTF: verifica se tem referência a .bin externo
+    // Se tiver, salva os auxiliares separados (não rejeita mais)
     if (ext === 'gltf') {
-      const text = mainFile.buffer.toString('utf8', 0, Math.min(mainFile.buffer.length, 4096));
+      const text = mainFile.buffer.toString('utf8', 0, Math.min(mainFile.buffer.length, 8192));
       const hasExternalBin = /"uri"\s*:\s*"(?!data:)[^"]+\.bin"/i.test(text);
+
       if (hasExternalBin) {
-        return res.status(400).json({
-          error: 'Este GLTF depende de arquivo .bin externo. Faça upload selecionando o .gltf e .bin juntos.',
+        // Verifica se o .bin foi enviado junto
+        const binAttached = files.find(f => f.originalname.toLowerCase().endsWith('.bin'));
+        if (!binAttached) {
+          return res.status(400).json({
+            error: 'Este GLTF depende de arquivo .bin externo. Selecione o .gltf e o .bin juntos no upload.',
+          });
+        }
+
+        // Salva ambos com prefixo do slug para o proxy encontrar
+        const gltfKey = await uploadFile(mainFile.buffer, `${slug}.gltf`, 'model/gltf+json');
+        await uploadFile(binAttached.buffer, `${slug}_${binAttached.originalname}`, 'application/octet-stream');
+
+        // Salva texturas extras se houver
+        const extras = files.filter(f =>
+          f !== mainFile && f !== binAttached
+        );
+        for (const extra of extras) {
+          const eext = extra.originalname.split('.').pop().toLowerCase();
+          const mime = eext === 'png' ? 'image/png'
+            : (eext === 'jpg' || eext === 'jpeg') ? 'image/jpeg'
+            : eext === 'webp' ? 'image/webp'
+            : 'application/octet-stream';
+          await uploadFile(extra.buffer, `${slug}_${extra.originalname}`, mime);
+        }
+
+        const viewerUrl = `${baseUrl}/v/${slug}`;
+        const qrUrl = await QRCode.toDataURL(viewerUrl);
+
+        const db = await getDb();
+        db.run(
+          `INSERT INTO projects (slug, name, description, file_name, file_size, file_type, file_key, qr_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [slug, name, description, mainFile.originalname, mainFile.buffer.length, 'gltf', gltfKey, qrUrl]
+        );
+        saveDb();
+
+        return res.status(201).json({
+          id: db.exec('SELECT last_insert_rowid()')[0].values[0][0],
+          slug, viewerUrl, qrUrl,
         });
       }
     }
