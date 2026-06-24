@@ -1,0 +1,12 @@
+node_modules/
+client/node_modules/
+.env
+data/
+uploads/
+*.db
+*.db-shm
+*.db-wal
+client/public/viewer.bundle.js
+client/public/*.wasm
+.DS_Store
+Thumbs.db
